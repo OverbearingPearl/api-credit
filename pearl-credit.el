@@ -105,30 +105,6 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 (defvar pearl-credit-mode-string ""
   "String displayed in the mode line.")
 
-(defcustom pearl-credit-low-threshold 1.0
-  "Balance threshold below which to highlight as critical (red)."
-  :type 'number
-  :group 'pearl-credit)
-
-(defcustom pearl-credit-warning-threshold 2.0
-  "Balance threshold below which to highlight as warning (orange)."
-  :type 'number
-  :group 'pearl-credit)
-
-(defface pearl-credit-critical
-  '((t :foreground "red"))
-  "Face for critical low balance."
-  :group 'pearl-credit)
-
-(defface pearl-credit-warning
-  '((t :foreground "orange"))
-  "Face for warning balance."
-  :group 'pearl-credit)
-
-(defface pearl-credit-normal
-  '((t :foreground "green"))
-  "Face for normal balance."
-  :group 'pearl-credit)
 
 (defun pearl-credit--parse-openrouter (data)
   "Extract remaining balance from OpenRouter response DATA."
@@ -305,19 +281,12 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
            (currency (plist-get spec :currency)))
       (setq pearl-credit-mode-string
             (if (and spec balance)
-                (let ((text (format " %s%s%.2f(%s)%s"
-                                    (pearl-credit--balance-bar balance)
-                                    currency
-                                    balance
-                                    name
-                                    (if err "~" ""))))
-                  (cond
-                   ((< balance pearl-credit-low-threshold)
-                    (propertize text 'face 'pearl-credit-critical))
-                   ((< balance pearl-credit-warning-threshold)
-                    (propertize text 'face 'pearl-credit-warning))
-                   (t
-                    (propertize text 'face 'pearl-credit-normal))))
+                (format " %s%s%.2f(%s)%s"
+                        (pearl-credit--balance-bar balance)
+                        currency
+                        balance
+                        name
+                        (if err "~" ""))
               ;; No balance yet - still show placeholder
               (format " [   ]%s--(%s)" (or currency "$") (or name "?"))))))
   (force-mode-line-update t))

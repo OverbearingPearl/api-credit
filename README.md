@@ -48,31 +48,17 @@ machine moonshot.cn password sk-...
 
 ## Display Format
 
-Balances appear as `[█]openrouter:$5.00` with Unicode block bars indicating relative amount (0-10 scale):
+Balances appear as `[▮▯▯]$2.00(openrouter)` with 3‑character Unicode bars:
 
-- `[█]` `[▇]` `[▆]` `[▅]` `[▄]` `[▃]` `[▂]` `[▁]` — Full to empty
-- **Green** (≥ 2.0): Healthy balance
-- **Orange** (1.0–2.0): Low balance warning
-- **Red** (< 1.0): Critical low balance
-- `~` suffix: Stale data (last fetch failed)
+- `[   ]` — Balance ≤ 0
+- `[▯▯▯]` — Balance ≤ 1.0
+- `[▮▯▯]` — Balance ≤ 2.0
+- `[▮▮▯]` — Balance ≤ 5.0
+- `[▮▮▮]` — Balance > 5.0
+
+`~` suffix: Stale data (last fetch failed)
 
 ## Variables
-
-### Thresholds
-
-```elisp
-(setq pearl-credit-low-threshold 1.0)      ; Red when below
-(setq pearl-credit-warning-threshold 2.0)  ; Orange when below
-```
-
-### Faces
-
-```elisp
-(custom-set-faces
- '(pearl-credit-critical ((t (:foreground "red" :weight bold))))
- '(pearl-credit-warning ((t (:foreground "orange"))))
- '(pearl-credit-normal ((t (:foreground "green")))))
-```
 
 ### Timing
 
