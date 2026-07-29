@@ -1,18 +1,20 @@
 ;;; pearl-credit.el --- AI API balance in the Emacs modeline  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024  Free Software Foundation, Inc.
-;; Keywords: tools, convenience
+;; Copyright (C) 2026 OverbearingPearl
+;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
+;; URL: https://github.com/OverbearingPearl/pearl-credit
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "25.1"))
-
-;; This program is free software; you can redistribute it and/or modify
-;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation, either version 3 of the License, or
-;; (at your option) any later version.
+;; Keywords: comm, convenience, ai, llm, api, balance, modeline, mode-line, openrouter, deepseek, moonshot
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 
-;; AI API balance in the Emacs modeline.  No browser, no blocking, no fuss.
+;; Display AI API account balances (OpenRouter, DeepSeek, Moonshot) in the Emacs mode line.
+;; Polls endpoints asynchronously without blocking, caches results with customizable intervals.
+;; Provides visual indicators (Unicode block bars, color-coded thresholds) for low balance warnings.
+;;
+;; Supports: OpenRouter (USD), DeepSeek (CNY), Moonshot (CNY)
 ;;
 ;; Setup: add entries to ~/.authinfo or ~/.authinfo.gpg:
 ;;
@@ -20,7 +22,13 @@
 ;;   machine deepseek.com password sk-...
 ;;   machine moonshot.cn password sk-...
 ;;
-;; Then enable `pearl-credit-mode'.
+;; Then enable `pearl-credit-mode' globally.
+;;
+;; Features:
+;; - Automatic polling with configurable interval
+;; - Cycle through providers or jump to specific one
+;; - Error resilience (shows stale data indicator on fetch failure)
+;; - No browser required, pure Emacs Lisp
 
 ;;; Code:
 
