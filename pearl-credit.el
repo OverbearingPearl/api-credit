@@ -73,22 +73,25 @@ Set to nil to display all configured providers."
      :currency "$"
      :host "openrouter.ai"
      :url "https://openrouter.ai/api/v1/credits"
+     :recharge-url "https://openrouter.ai/credits"
      :parser pearl-credit--parse-openrouter)
     (deepseek
      :name "deepseek"
      :currency "¥"
      :host "deepseek.com"
      :url "https://api.deepseek.com/user/balance"
+     :recharge-url "https://platform.deepseek.com/"
      :parser pearl-credit--parse-deepseek)
     (moonshot
      :name "moonshot"
      :currency "¥"
      :host "moonshot.cn"
      :url "https://api.moonshot.cn/v1/users/me/balance"
+     :recharge-url "https://platform.moonshot.cn/"
      :parser pearl-credit--parse-moonshot))
   "Provider specifications.
 Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
-:host, :url, and :parser.")
+:host, :url, :recharge-url, and :parser.")
 
 (defvar pearl-credit--state (make-hash-table :test 'eq)
   "Maps provider symbols to plists with :balance, :error, and :timestamp.")
@@ -370,6 +373,19 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
     (setq pearl-credit--current-index idx)
     (pearl-credit--update-mode-string)
     (message "%s" pearl-credit-mode-string)))
+
+(defun pearl-credit-recharge-current ()
+  "Open browser to recharge page of currently displayed provider."
+  (interactive)
+  (if (null pearl-credit-active-providers)
+      (user-error "No active providers")
+    (let* ((current-sym (nth pearl-credit--current-index pearl-credit-active-providers))
+           (spec (cdr (assq current-sym pearl-credit--providers)))
+           (url (plist-get spec :recharge-url)))
+      (unless url
+        (user-error "No recharge URL configured for %s" (plist-get spec :name)))
+      (browse-url url)
+      (message "Opening recharge page for %s..." (plist-get spec :name)))))
 
 (defun pearl-credit-status ()
   "Show all provider balances in minibuffer."

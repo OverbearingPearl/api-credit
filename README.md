@@ -42,6 +42,7 @@ machine moonshot.cn password sk-...
 - `M-x pearl-credit-refresh` — Force refresh all balances
 - `M-x pearl-credit-cycle` — Switch to next provider in rotation
 - `M-x pearl-credit-switch-to-provider` — Jump directly to a specific provider (with completion)
+- `M-x pearl-credit-recharge-current` — Open browser to current provider's recharge page
 - `M-x pearl-credit-status` — Show all provider balances in tooltip format
 - `M-x pearl-credit-mode` — Toggle display on/off
 
