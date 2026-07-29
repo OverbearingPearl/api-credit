@@ -2,6 +2,8 @@
 
 AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 
+![openrouter](screenshots/screenshot-openrouter.png)
+
 ## Install
 
 ```elisp
