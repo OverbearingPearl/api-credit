@@ -2,6 +2,7 @@
 
 ;; Copyright (C) 2026 OverbearingPearl
 ;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
+;; Assisted-by: Kimi:kimi-k2.5
 ;; URL: https://github.com/OverbearingPearl/pearl-credit
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "25.1"))
