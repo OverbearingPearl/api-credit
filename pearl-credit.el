@@ -1,4 +1,4 @@
-;;; pearl-credit.el --- AI API balance in the Emacs modeline  -*- lexical-binding: t; -*-
+;;; pearl-credit.el --- AI API balance in the modeline  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 OverbearingPearl
 ;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
@@ -11,9 +11,12 @@
 
 ;;; Commentary:
 
-;; Display AI API account balances (OpenRouter, DeepSeek, Moonshot) in the Emacs mode line.
-;; Polls endpoints asynchronously without blocking, caches results with customizable intervals.
-;; Provides visual indicators (Unicode block bars, color-coded thresholds) for low balance warnings.
+;; Display AI API account balances (OpenRouter, DeepSeek, Moonshot)
+;; in the mode line.
+;; Polls endpoints asynchronously without blocking, and caches results
+;; with customizable intervals.
+;; Provides visual indicators (Unicode block bars, color-coded
+;; thresholds) for low balance warnings.
 ;;
 ;; Supports: OpenRouter (USD), DeepSeek (CNY), Moonshot (CNY)
 ;;
@@ -35,6 +38,7 @@
 
 (require 'json)
 (require 'url)
+(require 'url-http)
 (require 'cl-lib)
 (require 'auth-source)
 
@@ -81,7 +85,8 @@ Set to nil to display all configured providers."
      :url "https://api.moonshot.cn/v1/users/me/balance"
      :parser pearl-credit--parse-moonshot))
   "Provider specifications.
-Each entry is a cons (SYMBOL . PLIST) with :name, :currency, :host, :url, and :parser.")
+Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
+:host, :url, and :parser.")
 
 (defvar pearl-credit--state (make-hash-table :test 'eq)
   "Maps provider symbols to plists with :balance, :error, and :timestamp.")
@@ -372,6 +377,7 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
 (define-minor-mode pearl-credit-mode
   "Show AI API balances in the mode line."
   :global t
+  :require 'pearl-credit
   ;; Use :eval so any modeline plugin displays us correctly
   :lighter (:eval pearl-credit-mode-string)
   (if pearl-credit-mode
