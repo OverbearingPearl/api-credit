@@ -42,6 +42,8 @@
 (require 'cl-lib)
 (require 'auth-source)
 
+(defvar url-http-response-status)
+
 (defgroup pearl-credit nil
   "AI API balance in the modeline."
   :group 'external)
