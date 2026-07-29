@@ -198,14 +198,13 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
            for err = (plist-get state :error)
            for name = (plist-get spec :name)
            concat (if balance
-                      (format "%s%s: %s%.2f%s\n"
-                              (pearl-credit--balance-bar balance)
+                      (format "%s: %s%.2f%s\n"
                               name
                               currency
                               balance
                               (if err "~" ""))
-                    ;; No balance yet - match modeline placeholder style
-                    (format "[░]%s:%s--\n" name currency))
+                    ;; No balance yet
+                    (format "%s: %s--\n" name currency))
            into lines
            finally return (string-trim-right lines "\n")))
 
@@ -283,18 +282,15 @@ RESULT-TYPE is :ok or :error.  VALUE is the balance or error symbol."
   (pearl-credit--update-mode-string))
 
 (defun pearl-credit--balance-bar (balance)
-  "Return Unicode block character representing BALANCE relative to 10.0."
-  (if (or (null balance) (<= balance 0))
-      "[▁]"
-    (cond
-     ((>= balance 10.0) "[█]")
-     ((>= balance 8.75) "[▇]")
-     ((>= balance 7.5)  "[▆]")
-     ((>= balance 6.25) "[▅]")
-     ((>= balance 5.0)  "[▄]")
-     ((>= balance 3.75) "[▃]")
-     ((>= balance 2.5)  "[▂]")
-     (t "[▁]"))))
+  "Return 3‑character Unicode bar representing BALANCE relative to 10.0.
+Uses U+25AE (BLACK VERTICAL RECTANGLE) for filled,
+U+25AF (WHITE VERTICAL RECTANGLE) for empty."
+  (cond
+   ((or (null balance) (<= balance 0)) "[   ]")
+   ((<= balance 1.0) "[▯▯▯]")
+   ((<= balance 2.0) "[▮▯▯]")
+   ((<= balance 5.0) "[▮▮▯]")
+   (t "[▮▮▮]")))
 
 (defun pearl-credit--update-mode-string ()
   "Rebuild `pearl-credit-mode-string' from current state."
@@ -309,11 +305,11 @@ RESULT-TYPE is :ok or :error.  VALUE is the balance or error symbol."
            (currency (plist-get spec :currency)))
       (setq pearl-credit-mode-string
             (if (and spec balance)
-                (let ((text (format " %s%s:%s%.2f%s"
+                (let ((text (format " %s%s%.2f(%s)%s"
                                     (pearl-credit--balance-bar balance)
-                                    name
                                     currency
                                     balance
+                                    name
                                     (if err "~" ""))))
                   (cond
                    ((< balance pearl-credit-low-threshold)
@@ -323,7 +319,7 @@ RESULT-TYPE is :ok or :error.  VALUE is the balance or error symbol."
                    (t
                     (propertize text 'face 'pearl-credit-normal))))
               ;; No balance yet - still show placeholder
-              (format " [░]%s:%s--" (or name "?") (or currency "$"))))))
+              (format " [   ]%s--(%s)" (or currency "$") (or name "?"))))))
   (force-mode-line-update t))
 
 (defun pearl-credit--poll-all ()
