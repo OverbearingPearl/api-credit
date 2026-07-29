@@ -13,59 +13,38 @@ AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 
 ## Setup
 
-API keys are read from `~/.authinfo` or `~/.authinfo.gpg`:
+Add entries to `~/.authinfo` or `~/.authinfo.gpg`:
 
 ```
-machine api.openrouter.ai password sk-or-v1-...
-machine api.deepseek.com password sk-...
+machine openrouter.ai password sk-or-v1-...
+machine deepseek.com password sk-...
+machine moonshot.cn password sk-...
 ```
 
-That's it. `pearl-credit` auto-detects providers from your authinfo entries.
-
-If you prefer explicit configuration:
-
-```elisp
-(setq pearl-credit-providers
-      '((openrouter :label "OR")
-        (deepseek   :label "DS")))
-```
-
-Or disable auto-detection entirely:
-
-```elisp
-(setq pearl-credit-auto-detect nil)
-```
+`pearl-credit` reads your authinfo and polls supported providers automatically.
 
 ## Supported Providers
 
-| Provider | Status | Authinfo machine |
+| Provider | Status | Balance Endpoint |
 |----------|--------|------------------|
-| OpenRouter | ✅ | `api.openrouter.ai` |
-| DeepSeek | ✅ | `api.deepseek.com` |
-| Moonshot / Kimi | ✅ | `api.moonshot.cn` |
-| Anthropic | ❌ | No public balance API |
-| OpenAI | ❌ | No public balance API |
+| OpenRouter | yes | `https://openrouter.ai/api/v1/key` |
+| DeepSeek | yes | `https://api.deepseek.com/user/balance` |
+| Moonshot | yes | `https://api.moonshot.cn/v1/users/me/balance` |
+| Anthropic | no | No public balance API |
+| OpenAI | no | No public balance API |
 
 ## Commands
 
-| Command | Binding | Description |
-|---------|---------|-------------|
-| `pearl-credit-refresh` | — | Force refresh all balances |
-| `pearl-credit-show-details` | — | Full breakdown buffer |
+- `M-x pearl-credit-refresh` - force refresh all balances
 
-## Customization
+## Variables
 
-```
-M-x customize-group RET pearl-credit RET
+```elisp
+(setq pearl-credit-poll-interval 300)  ; seconds
+(setq pearl-credit-timeout 10)         ; seconds
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `pearl-credit-poll-interval` | `300` | Seconds between polls |
-| `pearl-credit-format` | `"[%s]"` | Modeline format |
-| `pearl-credit-timeout` | `10` | Request timeout (seconds) |
-
-A tilde (`~`) after a value means the last poll failed — the number is stale.
+A tilde (`~`) after a value means the last poll failed.
 
 ## License
 
