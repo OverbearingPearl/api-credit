@@ -58,6 +58,15 @@
   :type 'integer
   :group 'pearl-credit)
 
+(defcustom pearl-credit-default-provider nil
+  "Default provider to display on startup.
+If nil, start with the first provider in `pearl-credit-active-providers'.
+Otherwise, should be a symbol like `openrouter', `deepseek', or `moonshot'
+that exists in `pearl-credit-active-providers'."
+  :type '(choice (const :tag "First active provider" nil)
+                 (symbol :tag "Specific provider"))
+  :group 'pearl-credit)
+
 (defcustom pearl-credit-active-providers '(openrouter deepseek moonshot)
   "List of providers to display.
 Each element should be a symbol matching those in `pearl-credit--providers'.
@@ -370,7 +379,12 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
         ;; Clean up legacy global-mode-string entries from previous versions
         (setq global-mode-string
               (remove '(:eval pearl-credit-mode-string) global-mode-string))
-        (setq pearl-credit--current-index 0)  ; Reset rotation
+        ;; Set initial provider: default if valid, otherwise first active
+        (setq pearl-credit--current-index
+              (or (and pearl-credit-default-provider
+                       (cl-position pearl-credit-default-provider
+                                    pearl-credit-active-providers))
+                  0))
         (pearl-credit--poll-all)
         (setq pearl-credit--timer
               (run-with-timer pearl-credit-poll-interval
