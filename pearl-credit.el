@@ -276,7 +276,7 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
    ((or (null balance) (<= balance 0)) "[   ]")
    ((<= balance 1.0) "[▯▯▯]")
    ((<= balance 2.0) "[▮▯▯]")
-   ((<= balance 5.0) "[▮▮▯]")
+   ((<= balance 10.0) "[▮▮▯]")
    (t "[▮▮▮]")))
 
 (defun pearl-credit--update-mode-string ()

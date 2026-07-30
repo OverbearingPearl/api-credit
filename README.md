@@ -55,8 +55,8 @@ Balances appear as `[▮▯▯]$2.00(openrouter)` with 3‑character Unicode bar
 - `[   ]` — Balance ≤ 0
 - `[▯▯▯]` — Balance ≤ 1.0
 - `[▮▯▯]` — Balance ≤ 2.0
-- `[▮▮▯]` — Balance ≤ 5.0
-- `[▮▮▮]` — Balance > 5.0
+- `[▮▮▯]` — Balance ≤ 10.0
+- `[▮▮▮]` — Balance > 10.0
 
 `~` suffix: Stale data (last fetch failed)
 
