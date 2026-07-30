@@ -239,20 +239,11 @@ RESULT-TYPE is either :ok or :error."
                t
                ;; Key fix: add inhibit-quit parameter to prevent exit prompts
                'inhibit-quit))
-        ;; More reliable process flag setting
+        ;; Prevent "running process" prompt on exit
         (when buf
           (with-current-buffer buf
-            (let ((proc (get-buffer-process (current-buffer))))
-              (when proc
-                ;; Set process flag immediately to prevent exit queries
-                (set-process-query-on-exit-flag proc nil)
-                ;; Optional: set process sentinel for cleanup
-                (set-process-sentinel
-                 proc
-                 (lambda (process event)
-                   (when (memq (process-status process) '(exit signal closed failed))
-                     (when (buffer-live-p (process-buffer process))
-                       (kill-buffer (process-buffer process))))))))))
+            (when-let ((proc (get-buffer-process (current-buffer))))
+              (set-process-query-on-exit-flag proc nil))))
         (unless buf
           (funcall finish provider :error 'http))))))
 
@@ -292,12 +283,12 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
            (currency (plist-get spec :currency)))
       (setq pearl-credit-mode-string
             (if (and spec balance)
-                (format " %s%s%.2f(%s)%s"
+                (format " %s%s%.2f%s(%s)"
                         (pearl-credit--balance-bar balance)
                         currency
                         balance
-                        name
-                        (if err "~" ""))
+                        (if err "~" "")
+                        name)
               ;; No balance yet - still show placeholder
               (format " [   ]%s--(%s)" (or currency "$") (or name "?"))))))
   (force-mode-line-update t))
