@@ -236,12 +236,23 @@ RESULT-TYPE is either :ok or :error."
                                   (funcall finish provider :error 'json))))
                            (funcall finish provider :error 'format)))))))
                nil
-               t))
-        ;; Prevent "running process" prompt on exit
+               t
+               ;; Key fix: add inhibit-quit parameter to prevent exit prompts
+               'inhibit-quit))
+        ;; More reliable process flag setting
         (when buf
           (with-current-buffer buf
-            (when-let ((proc (get-buffer-process (current-buffer))))
-              (set-process-query-on-exit-flag proc nil))))
+            (let ((proc (get-buffer-process (current-buffer))))
+              (when proc
+                ;; Set process flag immediately to prevent exit queries
+                (set-process-query-on-exit-flag proc nil)
+                ;; Optional: set process sentinel for cleanup
+                (set-process-sentinel
+                 proc
+                 (lambda (process event)
+                   (when (memq (process-status process) '(exit signal closed failed))
+                     (when (buffer-live-p (process-buffer process))
+                       (kill-buffer (process-buffer process))))))))))
         (unless buf
           (funcall finish provider :error 'http))))))
 
