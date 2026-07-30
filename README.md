@@ -8,6 +8,9 @@ AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 
 ```elisp
 (use-package pearl-credit
+  ;; Optional: start with specific provider instead of first active
+  ;; :custom
+  ;; (pearl-credit-default-provider 'deepseek)
   :ensure t
   :bind (("C-c A r" . pearl-credit-refresh)
          ("C-c A c" . pearl-credit-cycle)
@@ -61,6 +64,14 @@ Balances appear as `[▮▯▯]$2.00(openrouter)` with 3‑character Unicode bar
 `~` suffix: Stale data (last fetch failed)
 
 ## Variables
+
+### Display
+
+- `pearl-credit-default-provider` — Default provider to display on startup
+  - `nil` (default): Start with the first active provider
+  - Symbol like `openrouter`, `deepseek`, or `moonshot`: Jump to that provider if active
+
+Example: `(setq pearl-credit-default-provider 'deepseek)`
 
 ### Timing
 
