@@ -147,14 +147,14 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
   (or
    ;; Standard balance_infos format
    (let* ((infos (cdr (assoc "balance_infos" data)))
-          (first (and (listp infos) (car infos)))
+          (first (and (vectorp infos) (aref infos 0)))
           (total (cdr (assoc "total_balance" first))))
-     (when total
-       (if (stringp total) (string-to-number total) total)))
+    (when total
+      (if (stringp total) (string-to-number total) total)))
    ;; Fallback to a top-level balance field
    (let ((bal (cdr (assoc "balance" data))))
-     (when bal
-       (if (stringp bal) (string-to-number bal) bal)))))
+    (when bal
+      (if (stringp bal) (string-to-number bal) bal)))))
 
 (defun pearl-credit--parse-moonshot (data)
   "Extract balance from Moonshot response DATA."
@@ -200,24 +200,24 @@ RESULT-TYPE is either :ok or :error."
   (let* ((spec (cdr (assq provider pearl-credit--providers)))
          (host (plist-get spec :host))
          (url (plist-get spec :url))
-         (auth (car (auth-source-search :host host :require '(:secret)))))
+         (auth (car (auth-source-search :host host :require '(:secret))))
+         (done nil)
+         (buf nil)
+         (timer nil)
+         (finish (lambda (sym type val)
+                   (when timer
+                     (cancel-timer timer))
+                   (setq done t)
+                   (when (and buf (buffer-live-p buf))
+                     (kill-buffer buf))
+                   (funcall callback sym type val))))
     (if (null auth)
         (funcall callback provider :error 'no-auth)
       (let* ((secret (plist-get auth :secret))
              (api-key (if (functionp secret) (funcall secret) secret))
              (url-request-method "GET")
              (url-request-extra-headers
-              `(("Authorization" . ,(concat "Bearer " api-key))))
-             (done nil)
-             (buf nil)
-             (timer nil)
-             (finish (lambda (sym type val)
-                       (when timer
-                         (cancel-timer timer))
-                       (setq done t)
-                       (when (and buf (buffer-live-p buf))
-                         (kill-buffer buf))
-                       (funcall callback sym type val))))
+              `(("Authorization" . ,(concat "Bearer " api-key)))))
         (setq timer
               (run-with-timer pearl-credit-timeout nil
                               (lambda ()
