@@ -117,9 +117,10 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 (defvar pearl-credit-mode-string ""
   "String displayed in the mode line.")
 
-
 (defun pearl-credit--parse-openrouter (data)
-  "Extract remaining balance from OpenRouter response DATA."
+  "Extract remaining balance from OpenRouter response DATA.
+DATA is an alist parsed from JSON response.
+Returns balance as a number, or nil if parsing fails."
   ;; Try multiple possible field paths
   (or
    ;; Direct balance field
@@ -146,7 +147,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
            (- total-num used-num)))))))
 
 (defun pearl-credit--parse-deepseek (data)
-  "Extract balance from DeepSeek response DATA."
+  "Extract balance from DeepSeek response DATA.
+DATA is an alist parsed from JSON response.
+Returns balance as a number, or nil if parsing fails."
   (or
    ;; Standard balance_infos format
    (let* ((infos (cdr (assoc "balance_infos" data)))
@@ -160,7 +163,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
       (if (stringp bal) (string-to-number bal) bal)))))
 
 (defun pearl-credit--parse-moonshot (data)
-  "Extract balance from Moonshot response DATA."
+  "Extract balance from Moonshot response DATA.
+DATA is an alist parsed from JSON response.
+Returns balance as a number, or nil if parsing fails."
   (or
    ;; Standard nested data format
    (let* ((inner (cdr (assoc "data" data)))
@@ -176,7 +181,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
        (if (stringp balance) (string-to-number balance) balance)))))
 
 (defun pearl-credit--format-tooltip ()
-  "Generate tooltip text showing all providers."
+  "Generate tooltip text showing all providers.
+Returns a string with each provider's name, currency, and balance.
+Providers with no balance yet show '--'."
   (cl-loop for sym in pearl-credit-active-providers
            for spec = (cdr (assq sym pearl-credit--providers))
            when spec
@@ -198,8 +205,11 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 
 (defun pearl-credit--fetch (provider callback)
   "Fetch balance for PROVIDER, then call CALLBACK.
+PROVIDER is a symbol like `openrouter'.
 CALLBACK receives three arguments: PROVIDER, RESULT-TYPE, and VALUE.
-RESULT-TYPE is either :ok or :error."
+RESULT-TYPE is either :ok or :error.
+VALUE is either parsed data (for :ok) or error symbol (for :error).
+Error symbols can be: 'no-auth, 'timeout, 'http, 'json, or 'format."
   (let* ((spec (cdr (assq provider pearl-credit--providers)))
          (host (plist-get spec :host))
          (url (plist-get spec :url))
@@ -277,7 +287,10 @@ Only cleans up processes that were tracked in `pearl-credit--active-processes'."
 
 (defun pearl-credit--update-state (provider result-type value)
   "Update state for PROVIDER.
-RESULT-TYPE is :ok or :error.  VALUE is the balance or error symbol."
+PROVIDER is a symbol like `openrouter'.
+RESULT-TYPE is :ok or :error.
+VALUE is the balance (for :ok) or error symbol (for :error).
+Updates `pearl-credit--state' hash table and refreshes mode line."
   (let* ((old-state (gethash provider pearl-credit--state))
          (old-balance (plist-get old-state :balance)))
     (puthash provider
@@ -290,7 +303,9 @@ RESULT-TYPE is :ok or :error.  VALUE is the balance or error symbol."
 (defun pearl-credit--balance-bar (balance)
   "Return 3‑character Unicode bar representing BALANCE relative to 10.0.
 Uses U+25AE (BLACK VERTICAL RECTANGLE) for filled,
-U+25AF (WHITE VERTICAL RECTANGLE) for empty."
+U+25AF (WHITE VERTICAL RECTANGLE) for empty.
+BALANCE can be nil or a number.
+Returns string like \"[   ]\", \"[▯▯▯]\", \"[▮▯▯]\", etc."
   (cond
    ((or (null balance) (<= balance 0)) "[   ]")
    ((<= balance 1.0) "[▯▯▯]")
@@ -299,7 +314,8 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
    (t "[▮▮▮]")))
 
 (defun pearl-credit--update-mode-string ()
-  "Rebuild `pearl-credit-mode-string' from current state."
+  "Rebuild `pearl-credit-mode-string' from current state.
+Updates the mode line display based on current provider and balance."
   (if (null pearl-credit-active-providers)
       (setq pearl-credit-mode-string "")
     (let* ((current-sym (nth pearl-credit--current-index pearl-credit-active-providers))
@@ -322,7 +338,8 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
   (force-mode-line-update t))
 
 (defun pearl-credit--poll-all ()
-  "Poll all configured providers asynchronously."
+  "Poll all configured providers asynchronously.
+Initiates fetch requests for each provider in `pearl-credit--providers'."
   (dolist (provider pearl-credit--providers)
     (pearl-credit--fetch
      (car provider)
@@ -337,18 +354,21 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
          (pearl-credit--update-state sym type val))))))
 
 (defun pearl-credit-refresh ()
-  "Force refresh all balances."
+  "Force refresh all balances.
+Interactive command that triggers immediate polling of all providers."
   (interactive)
   (pearl-credit--poll-all))
 
 (defun pearl-credit-cycle ()
-  "Cycle to next provider and show current provider balance."
+  "Cycle to next provider and show current provider balance.
+Interactive command that rotates display to next provider in list."
   (interactive)
   (pearl-credit--cycle-provider)
   (message "%s" pearl-credit-mode-string))
 
 (defun pearl-credit--cycle-provider ()
-  "Switch to next provider in rotation."
+  "Switch to next provider in rotation.
+Updates `pearl-credit--current-index' and refreshes mode line."
   (setq pearl-credit--current-index
         (mod (1+ pearl-credit--current-index)
              (length pearl-credit-active-providers)))
@@ -356,7 +376,8 @@ U+25AF (WHITE VERTICAL RECTANGLE) for empty."
 
 (defun pearl-credit-switch-to-provider (provider)
   "Switch display to a specific PROVIDER.
-PROVIDER should be a symbol in `pearl-credit-active-providers'."
+PROVIDER should be a symbol in `pearl-credit-active-providers'.
+Interactive command with completion."
   (interactive
    (list (intern
           (completing-read "Provider: "
@@ -370,7 +391,8 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
     (message "%s" pearl-credit-mode-string)))
 
 (defun pearl-credit-recharge-current ()
-  "Open browser to recharge page of currently displayed provider."
+  "Open browser to recharge page of currently displayed provider.
+Interactive command that opens recharge URL in default browser."
   (interactive)
   (if (null pearl-credit-active-providers)
       (user-error "No active providers")
@@ -383,12 +405,16 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
       (message "Opening recharge page for %s..." (plist-get spec :name)))))
 
 (defun pearl-credit-status ()
-  "Show all provider balances in minibuffer."
+  "Show all provider balances in minibuffer.
+Interactive command that displays formatted tooltip in minibuffer."
   (interactive)
   (message "%s" (pearl-credit--format-tooltip)))
 
 (define-minor-mode pearl-credit-mode
-  "Show AI API balances in the mode line."
+  "Show AI API balances in the mode line.
+Global minor mode that displays balances and polls periodically.
+When enabled, starts polling with `pearl-credit-poll-interval'.
+When disabled, stops polling and cleans up resources."
   :global t
   :require 'pearl-credit
   ;; Use :eval so any modeline plugin displays us correctly
