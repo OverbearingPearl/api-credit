@@ -37,12 +37,8 @@
 ;;; Code:
 
 (require 'json)
-(require 'url)
-(require 'url-http)
 (require 'cl-lib)
 (require 'auth-source)
-
-(defvar url-http-response-status)
 
 (defgroup pearl-credit nil
   "AI API balance in the modeline."
@@ -109,7 +105,7 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
   "Timer for automatic polling.")
 
 (defvar pearl-credit--active-processes (make-hash-table :test 'eq)
-  "Hash table mapping provider symbols to their active url-retrieve processes.")
+  "Hash table mapping provider symbols to their active curl processes.")
 
 (defvar pearl-credit--current-index 0
   "Index of currently displayed provider in `pearl-credit-active-providers'.")
@@ -204,80 +200,95 @@ Providers with no balance yet show '--'."
            finally return (string-trim-right lines "\n")))
 
 (defun pearl-credit--fetch (provider callback)
-  "Fetch balance for PROVIDER, then call CALLBACK.
+  "Fetch balance for PROVIDER using curl, then call CALLBACK.
 PROVIDER is a symbol like `openrouter'.
 CALLBACK receives three arguments: PROVIDER, RESULT-TYPE, and VALUE.
 RESULT-TYPE is either :ok or :error.
 VALUE is either parsed data (for :ok) or error symbol (for :error).
-Error symbols can be: 'no-auth, 'timeout, 'http, 'json, or 'format."
+Error symbols can be: 'no-auth, 'timeout, 'curl-failed, 'http, 'json, or 'format."
   (let* ((spec (cdr (assq provider pearl-credit--providers)))
          (host (plist-get spec :host))
          (url (plist-get spec :url))
          (auth (car (auth-source-search :host host :require '(:secret))))
          (done nil)
-         (buf nil)
          (timer nil)
+         (process nil)
+         (output-buffer (generate-new-buffer " *pearl-curl-output*"))
+         (error-buffer (generate-new-buffer " *pearl-curl-error*"))
          (finish (lambda (sym type val)
                    (when timer
                      (cancel-timer timer))
                    (setq done t)
                    ;; Clean up process tracking
                    (remhash sym pearl-credit--active-processes)
-                   (when (and buf (buffer-live-p buf))
-                     (kill-buffer buf))
+                   (when (process-live-p process)
+                     (delete-process process))
+                   (when (buffer-live-p output-buffer)
+                     (kill-buffer output-buffer))
+                   (when (buffer-live-p error-buffer)
+                     (kill-buffer error-buffer))
                    (funcall callback sym type val))))
+
     (if (null auth)
         (funcall callback provider :error 'no-auth)
       (let* ((secret (plist-get auth :secret))
              (api-key (if (functionp secret) (funcall secret) secret))
-             (url-request-method "GET")
-             (url-request-extra-headers
-              `(("Authorization" . ,(concat "Bearer " api-key)))))
+             (curl-args (list
+                         "--silent"
+                         "--show-error"
+                         "--max-time" (number-to-string pearl-credit-timeout)
+                         "--header" (concat "Authorization: Bearer " api-key)
+                         url)))
+
+        ;; Set timeout timer
         (setq timer
               (run-with-timer pearl-credit-timeout nil
                               (lambda ()
                                 (unless done
                                   (funcall finish provider :error 'timeout)))))
-        (setq buf
-              (url-retrieve
-               url
-               (lambda (status)
-                 (unless done
-                   (if (plist-get status :error)
-                       (funcall finish provider :error 'http)
-                     (let ((http-status url-http-response-status))
-                       (if (or (null http-status) (>= http-status 400))
-                           (funcall finish provider :error 'http)
-                         (goto-char (point-min))
-                         (if (search-forward "\n\n" nil t)
-                             (let ((json-str (buffer-substring (point) (point-max))))
-                               (condition-case nil
-                                   (let* ((json-object-type 'alist)
-                                          (json-key-type 'string)
-                                          (data (json-read-from-string json-str)))
-                                     (funcall finish provider :ok data))
-                                 (json-error
-                                  (funcall finish provider :error 'json))))
-                           (funcall finish provider :error 'format)))))))
-               nil
-               t
-               ;; Key fix: add inhibit-quit parameter to prevent exit prompts
-               'inhibit-quit))
-        ;; Track active process
-        (when buf
-          (with-current-buffer buf
-            (when-let ((proc (get-buffer-process (current-buffer))))
-              (puthash provider proc pearl-credit--active-processes))))
-        ;; Prevent "running process" prompt on exit
-        (when buf
-          (with-current-buffer buf
-            (when-let ((proc (get-buffer-process (current-buffer))))
-              (set-process-query-on-exit-flag proc nil))))
-        (unless buf
-          (funcall finish provider :error 'http))))))
+
+        ;; Start curl process
+        (condition-case err
+            (progn
+              (setq process
+                    (make-process
+                     :name (format "pearl-curl-%s" provider)
+                     :buffer output-buffer
+                     :stderr error-buffer
+                     :command (cons "curl" curl-args)
+                     :sentinel
+                     (lambda (proc event)
+                       (unless done
+                         (cond
+                          ((string= event "finished\n")
+                           (let ((exit-status (process-exit-status proc)))
+                             (if (= exit-status 0)
+                                 (with-current-buffer output-buffer
+                                   (let ((json-str (buffer-string)))
+                                     (condition-case nil
+                                         (let* ((json-object-type 'alist)
+                                                (json-key-type 'string)
+                                                (data (json-read-from-string json-str)))
+                                           (funcall finish provider :ok data))
+                                       (json-error
+                                        (funcall finish provider :error 'json)))))
+                               (funcall finish provider :error 'http))))
+                          ((or (string-prefix-p "exited abnormally" event)
+                               (string-prefix-p "failed" event))
+                           (funcall finish provider :error 'curl-failed))
+                          ((string= event "killed\n")
+                           ;; Process was killed by timeout or cleanup
+                           nil))))
+                     :noquery t))
+
+              ;; Track active process
+              (puthash provider process pearl-credit--active-processes))
+
+          (error
+           (funcall finish provider :error 'curl-failed)))))))
 
 (defun pearl-credit--cleanup-processes ()
-  "Clean up all pending network processes created by pearl-credit.
+  "Clean up all pending curl processes created by pearl-credit.
 Only cleans up processes that were tracked in `pearl-credit--active-processes'."
   (maphash (lambda (provider proc)
              (when (process-live-p proc)
