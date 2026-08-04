@@ -108,6 +108,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 (defvar pearl-credit--timer nil
   "Timer for automatic polling.")
 
+(defvar pearl-credit--active-processes (make-hash-table :test 'eq)
+  "Hash table mapping provider symbols to their active url-retrieve processes.")
+
 (defvar pearl-credit--current-index 0
   "Index of currently displayed provider in `pearl-credit-active-providers'.")
 
@@ -208,6 +211,8 @@ RESULT-TYPE is either :ok or :error."
                    (when timer
                      (cancel-timer timer))
                    (setq done t)
+                   ;; Clean up process tracking
+                   (remhash sym pearl-credit--active-processes)
                    (when (and buf (buffer-live-p buf))
                      (kill-buffer buf))
                    (funcall callback sym type val))))
@@ -248,6 +253,11 @@ RESULT-TYPE is either :ok or :error."
                t
                ;; Key fix: add inhibit-quit parameter to prevent exit prompts
                'inhibit-quit))
+        ;; Track active process
+        (when buf
+          (with-current-buffer buf
+            (when-let ((proc (get-buffer-process (current-buffer))))
+              (puthash provider proc pearl-credit--active-processes))))
         ;; Prevent "running process" prompt on exit
         (when buf
           (with-current-buffer buf
@@ -255,6 +265,15 @@ RESULT-TYPE is either :ok or :error."
               (set-process-query-on-exit-flag proc nil))))
         (unless buf
           (funcall finish provider :error 'http))))))
+
+(defun pearl-credit--cleanup-processes ()
+  "Clean up all pending network processes created by pearl-credit.
+Only cleans up processes that were tracked in `pearl-credit--active-processes'."
+  (maphash (lambda (provider proc)
+             (when (process-live-p proc)
+               (delete-process proc))
+             (remhash provider pearl-credit--active-processes))
+           pearl-credit--active-processes))
 
 (defun pearl-credit--update-state (provider result-type value)
   "Update state for PROVIDER.
@@ -376,6 +395,8 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
   :lighter (:eval pearl-credit-mode-string)
   (if pearl-credit-mode
       (progn
+        ;; Clean up any pending processes from previous sessions
+        (pearl-credit--cleanup-processes)
         ;; Clean up legacy global-mode-string entries from previous versions
         (setq global-mode-string
               (remove '(:eval pearl-credit-mode-string) global-mode-string))
@@ -393,6 +414,8 @@ PROVIDER should be a symbol in `pearl-credit-active-providers'."
     (when pearl-credit--timer
       (cancel-timer pearl-credit--timer)
       (setq pearl-credit--timer nil))
+    ;; Clean up pending processes
+    (pearl-credit--cleanup-processes)
     ;; Clean up legacy entries
     (setq global-mode-string
           (remove '(:eval pearl-credit-mode-string) global-mode-string))
