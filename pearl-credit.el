@@ -249,7 +249,7 @@ Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
                                   (funcall finish provider :error 'timeout)))))
 
         ;; Start curl process
-        (condition-case err
+        (condition-case _
             (progn
               (setq process
                     (make-process
