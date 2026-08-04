@@ -205,7 +205,8 @@ PROVIDER is a symbol like `openrouter'.
 CALLBACK receives three arguments: PROVIDER, RESULT-TYPE, and VALUE.
 RESULT-TYPE is either :ok or :error.
 VALUE is either parsed data (for :ok) or error symbol (for :error).
-Error symbols can be: 'no-auth, 'timeout, 'curl-failed, 'http, 'json, or 'format."
+Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
+`json', or `format'."
   (let* ((spec (cdr (assq provider pearl-credit--providers)))
          (host (plist-get spec :host))
          (url (plist-get spec :url))
@@ -333,17 +334,17 @@ Updates the mode line display based on current provider and balance."
            (spec (cdr (assq current-sym pearl-credit--providers)))
            (state (gethash current-sym pearl-credit--state))
            (balance (plist-get state :balance))
-           (err (plist-get state :error))
            (name (plist-get spec :name))
            (currency (plist-get spec :currency)))
       (setq pearl-credit-mode-string
             (if (and spec balance)
-                (format " %s%s%.2f%s(%s)"
-                        (pearl-credit--balance-bar balance)
-                        currency
-                        balance
-                        (if err "~" "")
-                        name)
+                (let ((err (plist-get state :error)))
+                  (format " %s%s%.2f%s(%s)"
+                          (pearl-credit--balance-bar balance)
+                          currency
+                          balance
+                          (if err "~" "")
+                          name))
               ;; No balance yet - still show placeholder
               (format " [   ]%s--(%s)" (or currency "$") (or name "?"))))))
   (force-mode-line-update t))
