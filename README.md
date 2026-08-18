@@ -1,4 +1,4 @@
-# pearl-credit
+# api-credit
 
 AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 
@@ -7,17 +7,17 @@ AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 ## Install
 
 ```elisp
-(use-package pearl-credit
+(use-package api-credit
   ;; Optional: start with specific provider instead of first active
   ;; :custom
-  ;; (pearl-credit-default-provider 'deepseek)
+  ;; (api-credit-default-provider 'deepseek)
   :ensure t
-  :bind (("C-c A r" . pearl-credit-refresh)
-         ("C-c A c" . pearl-credit-cycle)
-         ("C-c A s" . pearl-credit-switch-to-provider)
-         ("C-c A S" . pearl-credit-status))
+  :bind (("C-c A r" . api-credit-refresh)
+         ("C-c A c" . api-credit-cycle)
+         ("C-c A s" . api-credit-switch-to-provider)
+         ("C-c A S" . api-credit-status))
   :config
-  (pearl-credit-mode 1))
+  (api-credit-mode 1))
 ```
 
 ## Setup
@@ -30,7 +30,7 @@ machine deepseek.com password sk-...
 machine moonshot.cn password sk-...
 ```
 
-`pearl-credit` reads your authinfo and polls supported providers automatically.
+`api-credit` reads your authinfo and polls supported providers automatically.
 
 ## Supported Providers
 
@@ -44,12 +44,12 @@ machine moonshot.cn password sk-...
 
 ## Commands
 
-- `M-x pearl-credit-refresh` — Force refresh all balances
-- `M-x pearl-credit-cycle` — Switch to next provider in rotation
-- `M-x pearl-credit-switch-to-provider` — Jump directly to a specific provider (with completion)
-- `M-x pearl-credit-recharge-current` — Open browser to current provider's recharge page
-- `M-x pearl-credit-status` — Show all provider balances in tooltip format
-- `M-x pearl-credit-mode` — Toggle display on/off
+- `M-x api-credit-refresh` — Force refresh all balances
+- `M-x api-credit-cycle` — Switch to next provider in rotation
+- `M-x api-credit-switch-to-provider` — Jump directly to a specific provider (with completion)
+- `M-x api-credit-recharge-current` — Open browser to current provider's recharge page
+- `M-x api-credit-status` — Show all provider balances in tooltip format
+- `M-x api-credit-mode` — Toggle display on/off
 
 ## Display Format
 
@@ -67,16 +67,16 @@ Balances appear as `[▮▯▯]$2.00(openrouter)` with 3‑character Unicode bar
 
 ### Display
 
-- `pearl-credit-default-provider` — Default provider to display on startup
+- `api-credit-default-provider` — Default provider to display on startup
   - `nil` (default): Start with the first active provider
   - Symbol like `openrouter`, `deepseek`, or `moonshot`: Jump to that provider if active
 
-Example: `(setq pearl-credit-default-provider 'deepseek)`
+Example: `(setq api-credit-default-provider 'deepseek)`
 
 ### Timing
 
-- `pearl-credit-poll-interval` — Seconds between automatic updates (default: 300)
-- `pearl-credit-timeout` — HTTP request timeout (default: 10)
+- `api-credit-poll-interval` — Seconds between automatic updates (default: 300)
+- `api-credit-timeout` — HTTP request timeout (default: 10)
 
 ## License
 
