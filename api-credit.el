@@ -4,7 +4,7 @@
 ;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
 ;; Assisted-by: Kimi:kimi-k2.5
 ;; URL: https://github.com/OverbearingPearl/api-credit
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: comm, convenience, ai, llm, api, balance, modeline, mode-line, openrouter, deepseek, moonshot
 ;; SPDX-License-Identifier: GPL-3.0-or-later
