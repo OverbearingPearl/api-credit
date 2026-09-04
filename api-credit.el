@@ -63,6 +63,7 @@
 (require 'json)
 (require 'cl-lib)
 (require 'auth-source)
+(require 'url)
 
 (defgroup api-credit nil
   "AI API balance in the modeline."
@@ -74,7 +75,9 @@
   :group 'api-credit)
 
 (defcustom api-credit-timeout 10
-  "Seconds to wait for an HTTP request (passed to curl as `--max-time')."
+  "Seconds to wait for an HTTP request.
+The curl backend passes it to curl as `--max-time'; the url.el
+backend enforces it with a timer."
   :type 'integer
   :group 'api-credit)
 
@@ -133,6 +136,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 
 (defvar api-credit--current-index 0
   "Index of currently displayed provider in `api-credit-active-providers'.")
+
+(defvar api-credit--url-fallback-announced nil
+  "This variable is non-nil once the fallback to `url.el' has been announced.")
 
 (defvar api-credit-mode-string ""
   "String displayed in the mode line.")
@@ -223,90 +229,175 @@ Providers with no balance yet show '--'."
            into lines
            finally return (string-trim-right lines "\n")))
 
+(defun api-credit--json-parse (str)
+  "Parse STR as JSON using alist objects and string keys.
+Signals `json-error' on malformed input."
+  (let ((json-object-type 'alist)
+        (json-key-type 'string))
+    (json-read-from-string str)))
+
 (defun api-credit--fetch (provider callback)
-  "Fetch balance for PROVIDER using curl, then call CALLBACK.
+  "Fetch balance for PROVIDER, then call CALLBACK.
 PROVIDER is a symbol like `openrouter'.
+Transport is automatic: when present in variable `exec-path', curl
+is used; otherwise the built-in url.el transport is used (announced
+once per session).  There is no user option for this.
 CALLBACK receives three arguments: PROVIDER, RESULT-TYPE, and VALUE.
 RESULT-TYPE is either :ok or :error.
 VALUE is either parsed data (for :ok) or error symbol (for :error).
-Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
-`json', or `format'."
+Error symbols can be: `no-auth', `timeout', `curl-failed',
+`url-failed', `http', `json', or `format'."
   (let* ((spec (cdr (assq provider api-credit--providers)))
          (host (plist-get spec :host))
          (url (plist-get spec :url))
-         (auth (car (auth-source-search :host host :require '(:secret))))
-         (done nil)
+         (auth (car (auth-source-search :host host :require '(:secret)))))
+    (if (null auth)
+        (funcall callback provider :error 'no-auth)
+      (let* ((secret (plist-get auth :secret))
+             (api-key (if (functionp secret) (funcall secret) secret)))
+        (if (executable-find "curl")
+            (api-credit--fetch-curl provider url api-key callback)
+          ;; Degradation point: no curl executable on this system;
+          ;; fall back to the built-in url.el backend.
+          (unless api-credit--url-fallback-announced
+            (message "api-credit: curl not found; using built-in url.el")
+            (setq api-credit--url-fallback-announced t))
+          (api-credit--fetch-url provider url api-key callback))))))
+
+(defun api-credit--fetch-curl (provider url api-key callback)
+  "Fetch URL with the curl executable for PROVIDER, then call CALLBACK.
+See `api-credit--fetch' for the CALLBACK protocol."
+  (let* ((done nil)
          (process nil)
          (output-buffer (generate-new-buffer " *api-curl-output*"))
          (error-buffer (generate-new-buffer " *api-curl-error*"))
-         (finish (lambda (sym type val)
+         (finish (lambda (type val)
                    (setq done t)
                    ;; Clean up process tracking
-                   (remhash sym api-credit--active-processes)
+                   (remhash provider api-credit--active-processes)
                    (when (process-live-p process)
                      (delete-process process))
                    (when (buffer-live-p output-buffer)
                      (kill-buffer output-buffer))
                    (when (buffer-live-p error-buffer)
                      (kill-buffer error-buffer))
-                   (funcall callback sym type val))))
+                   (funcall callback provider type val)))
+         (curl-args (list
+                     "--silent"
+                     "--show-error"
+                     "--max-time" (number-to-string api-credit-timeout)
+                     "--header" (concat "Authorization: Bearer " api-key)
+                     url)))
+    ;; Start curl process
+    (condition-case _
+        (progn
+          (setq process
+                (make-process
+                 :name (format "api-curl-%s" provider)
+                 :buffer output-buffer
+                 :stderr error-buffer
+                 :command (cons "curl" curl-args)
+                 :sentinel
+                 (lambda (proc event)
+                   (unless done
+                     (cond
+                      ((string= event "finished\n")
+                       (let ((exit-status (process-exit-status proc)))
+                         (if (= exit-status 0)
+                             (with-current-buffer output-buffer
+                               (let ((json-str (buffer-string)))
+                                 (condition-case nil
+                                     (let ((data (api-credit--json-parse json-str)))
+                                       (funcall finish :ok data))
+                                   (json-error
+                                    (funcall finish :error 'json)))))
+                           (funcall finish :error 'http))))
+                      ;; curl exit code 28 = CURLE_OPERATION_TIMEDOUT,
+                      ;; i.e. --max-time elapsed (see curl(1) man page,
+                      ;; EXIT CODES).
+                      ((and (string-prefix-p "exited abnormally" event)
+                            (= (process-exit-status proc) 28))
+                       (funcall finish :error 'timeout))
+                      ((or (string-prefix-p "exited abnormally" event)
+                           (string-prefix-p "failed" event))
+                       (funcall finish :error 'curl-failed))
+                      ((string= event "killed\n")
+                       ;; Process was killed by timeout or cleanup
+                       nil))))
+                 :noquery t))
+          ;; Track active process
+          (puthash provider process api-credit--active-processes))
+      (error
+       (funcall finish :error 'curl-failed)))))
 
-    (if (null auth)
-        (funcall callback provider :error 'no-auth)
-      (let* ((secret (plist-get auth :secret))
-             (api-key (if (functionp secret) (funcall secret) secret))
-             (curl-args (list
-                         "--silent"
-                         "--show-error"
-                         "--max-time" (number-to-string api-credit-timeout)
-                         "--header" (concat "Authorization: Bearer " api-key)
-                         url)))
-
-        ;; Start curl process
-        (condition-case _
-            (progn
-              (setq process
-                    (make-process
-                     :name (format "api-curl-%s" provider)
-                     :buffer output-buffer
-                     :stderr error-buffer
-                     :command (cons "curl" curl-args)
-                     :sentinel
-                     (lambda (proc event)
-                       (unless done
-                         (cond
-                          ((string= event "finished\n")
-                           (let ((exit-status (process-exit-status proc)))
-                             (if (= exit-status 0)
-                                 (with-current-buffer output-buffer
-                                   (let ((json-str (buffer-string)))
-                                     (condition-case nil
-                                         (let* ((json-object-type 'alist)
-                                                (json-key-type 'string)
-                                                (data (json-read-from-string json-str)))
-                                           (funcall finish provider :ok data))
-                                       (json-error
-                                        (funcall finish provider :error 'json)))))
-                               (funcall finish provider :error 'http))))
-                          ;; curl exit code 28 = CURLE_OPERATION_TIMEDOUT,
-                          ;; i.e. --max-time elapsed (see curl(1) man page,
-                          ;; EXIT CODES).
-                          ((and (string-prefix-p "exited abnormally" event)
-                                (= (process-exit-status proc) 28))
-                           (funcall finish provider :error 'timeout))
-                          ((or (string-prefix-p "exited abnormally" event)
-                               (string-prefix-p "failed" event))
-                           (funcall finish provider :error 'curl-failed))
-                          ((string= event "killed\n")
-                           ;; Process was killed by timeout or cleanup
-                           nil))))
-                     :noquery t))
-
-              ;; Track active process
-              (puthash provider process api-credit--active-processes))
-
-          (error
-           (funcall finish provider :error 'curl-failed)))))))
+(defun api-credit--fetch-url (provider url api-key callback)
+  "Fetch URL with the built-in url.el backend for PROVIDER.
+Then call CALLBACK; see `api-credit--fetch' for the protocol.
+url.el has no built-in request timeout, so `api-credit-timeout'
+is enforced with a timer that kills the connection."
+  (let* ((done nil)
+         (buffer nil)
+         (timer nil)
+         (finish (lambda (type val)
+                   (setq done t)
+                   (when timer
+                     (cancel-timer timer)
+                     (setq timer nil))
+                   (funcall callback provider type val)))
+         (abort (lambda ()
+                  ;; Kill the pending connection and its buffer.
+                  (let ((proc (and (buffer-live-p buffer)
+                                   (get-buffer-process buffer))))
+                    (when proc
+                      (delete-process proc)))
+                  (when (buffer-live-p buffer)
+                    (kill-buffer buffer))))
+         (handle (lambda (type val)
+                   (unless done
+                     (funcall abort)
+                     (funcall finish type val)))))
+    (setq timer
+          (run-with-timer api-credit-timeout nil
+                          (lambda ()
+                            (funcall handle :error 'timeout))))
+    (condition-case _
+        (setq buffer
+              (let ((url-request-method "GET")
+                    (url-request-extra-headers
+                     `(("Authorization" . ,(concat "Bearer " api-key)))))
+                (url-retrieve
+                 url
+                 (lambda (status)
+                   (cond
+                    (done)          ; already timed out or finished
+                    ((plist-get status :error)
+                     ;; Connection-level failure (DNS, refused, TLS).
+                     (funcall handle :error 'url-failed))
+                    (t
+                     (with-current-buffer buffer
+                       (goto-char (point-min))
+                       (let* ((status-line (buffer-substring
+                                            (point)
+                                            (progn (end-of-line) (point))))
+                              (code (and (string-match
+                                          "HTTP/[0-9.]+[ \t]+\\([0-9]+\\)"
+                                          status-line)
+                                         (string-to-number
+                                          (match-string 1 status-line)))))
+                         (if (not (and (numberp code)
+                                       (>= code 200) (< code 300)))
+                             (funcall handle :error 'http)
+                           (if (not (re-search-forward "\r?\n\r?\n" nil t))
+                               (funcall handle :error 'http)
+                             (condition-case nil
+                                 (let ((data (api-credit--json-parse
+                                              (buffer-substring
+                                               (point) (point-max)))))
+                                   (funcall handle :ok data))
+                               (json-error
+                                (funcall handle :error 'json)))))))))))))
+      (error
+       (funcall handle :error 'url-failed)))))
 
 (defun api-credit--cleanup-processes ()
   "Clean up all pending curl processes created by api-credit.

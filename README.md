@@ -4,6 +4,13 @@ AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
 
 ![openrouter](screenshots/screenshot-openrouter.png)
 
+## Requirements
+
+- Emacs 25.1+
+- curl is optional: used automatically when found on `exec-path`,
+  otherwise the built-in `url.el` transport is used (announced once
+  in `*Messages*`). No configuration needed.
+
 ## Install
 
 ```elisp
@@ -76,7 +83,7 @@ Example: `(setq api-credit-default-provider 'deepseek)`
 ### Timing
 
 - `api-credit-poll-interval` — Seconds between automatic updates (default: 300)
-- `api-credit-timeout` — HTTP request timeout (default: 10)
+- `api-credit-timeout` — HTTP request timeout in seconds (default: 10); applies to both transports (curl `--max-time`, or a timer for `url.el`)
 
 ## License
 
