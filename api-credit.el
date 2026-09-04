@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2026 OverbearingPearl
 ;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
-;; Assisted-by: DeepSeek:deepseek-v4-flash, GLM:glm-5.3-flash
+;; Assisted-by: DeepSeek:deepseek-v4-flash, GLM:glm-5.3-flash, Laguna:laguna-s-2.1
 ;; URL: https://github.com/OverbearingPearl/api-credit
 ;; Version: 0.1.3
 ;; Package-Requires: ((emacs "25.1"))
