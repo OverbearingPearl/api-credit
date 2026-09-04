@@ -20,6 +20,13 @@
 This value is captured while this file is being loaded so it stays
 valid even after `unload-feature' has cleared various variables.")
 
+(defvar api-credit-test--file
+  (or load-file-name
+      (expand-file-name "api-credit-test.el" api-credit-test--dir))
+  "Path to this test entrypoint file.
+Used by `api-credit-test-run' to re-load the test definitions after
+clearing stale erte state.")
+
 (defun api-credit-test-reload-under-test ()
   "Reload api-credit source files from `api-credit-test--dir'.
 
@@ -127,6 +134,10 @@ user's `api-credit-mode' state and `api-credit-*' variables."
     (unwind-protect
         (progn
           (api-credit-test-reload-under-test)
+          (ert-delete-all-tests)
+          (when (and api-credit-test--file
+                     (file-exists-p api-credit-test--file))
+            (load-file api-credit-test--file))
           (if noninteractive
               (ert-run-tests-batch-and-exit "api-credit-")
             (ert t)))
