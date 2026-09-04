@@ -137,11 +137,15 @@ that exists in `api-credit-active-providers'."
                  (symbol :tag "Specific provider"))
   :set (lambda (sym val)
          (set-default sym val)
-         (when (bound-and-true-p api-credit-mode)
-           (setq api-credit--current-index
-                 (or (and val (cl-position val api-credit-active-providers))
-                     0))
-           (api-credit--update-mode-string)))
+         (let ((idx (and (bound-and-true-p api-credit-mode)
+                         (cl-position val api-credit-active-providers))))
+           ;; Only re-point the mode line when a valid provider was
+           ;; selected.  This also prevents re-evaluating the defcustom
+           ;; (e.g. under testcover's eval-buffer) from clobbering a
+           ;; provider the user has already chosen.
+           (when idx
+             (setq api-credit--current-index idx)
+             (api-credit--update-mode-string))))
   :group 'api-credit)
 
 (defvar api-credit--url-fallback-announced nil
@@ -540,6 +544,35 @@ Interactive command that displays formatted tooltip in minibuffer."
   (interactive)
   (message "%s" (api-credit--format-tooltip)))
 
+(defun api-credit--mode-start ()
+  "Start periodic polling and display for `api-credit-mode'."
+  ;; Clean up any pending processes from previous sessions.
+  (api-credit--cleanup-processes)
+  ;; Clean up legacy global-mode-string entries from previous versions.
+  (setq global-mode-string
+        (remove '(:eval api-credit-mode-string) global-mode-string))
+  ;; Set initial provider: default if valid, otherwise first active.
+  (setq api-credit--current-index
+        (or (and api-credit-default-provider
+                 (cl-position api-credit-default-provider
+                              api-credit-active-providers))
+            0))
+  (api-credit--poll-all)
+  (setq api-credit--timer
+        (run-with-timer api-credit-poll-interval
+                        api-credit-poll-interval
+                        #'api-credit--poll-all)))
+
+(defun api-credit--mode-stop ()
+  "Stop polling and clean up state for `api-credit-mode'."
+  (when api-credit--timer
+    (cancel-timer api-credit--timer)
+    (setq api-credit--timer nil))
+  (api-credit--cleanup-processes)
+  (setq global-mode-string
+        (remove '(:eval api-credit-mode-string) global-mode-string))
+  (force-mode-line-update t))
+
 (define-minor-mode api-credit-mode
   "Show AI API balances in the mode line.
 Global minor mode that displays balances and polls periodically.
@@ -550,32 +583,8 @@ When disabled, stops polling and cleans up resources."
   ;; Use :eval so any modeline plugin displays us correctly
   :lighter (:eval api-credit-mode-string)
   (if api-credit-mode
-      (progn
-        ;; Clean up any pending processes from previous sessions
-        (api-credit--cleanup-processes)
-        ;; Clean up legacy global-mode-string entries from previous versions
-        (setq global-mode-string
-              (remove '(:eval api-credit-mode-string) global-mode-string))
-        ;; Set initial provider: default if valid, otherwise first active
-        (setq api-credit--current-index
-              (or (and api-credit-default-provider
-                       (cl-position api-credit-default-provider
-                                    api-credit-active-providers))
-                  0))
-        (api-credit--poll-all)
-        (setq api-credit--timer
-              (run-with-timer api-credit-poll-interval
-                              api-credit-poll-interval
-                              #'api-credit--poll-all)))
-    (when api-credit--timer
-      (cancel-timer api-credit--timer)
-      (setq api-credit--timer nil))
-    ;; Clean up pending processes
-    (api-credit--cleanup-processes)
-    ;; Clean up legacy entries
-    (setq global-mode-string
-          (remove '(:eval api-credit-mode-string) global-mode-string))
-    (force-mode-line-update t)))
+      (api-credit--mode-start)
+    (api-credit--mode-stop)))
 
 (provide 'api-credit)
 
