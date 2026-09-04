@@ -69,16 +69,36 @@ restored by calling the mode function rather than by `set'."
 
 (defun api-credit-test--restore-state (saved mode-enabled-p)
   "Restore SAVED variable values and MODE-ENABLED-P mode state."
-  ;; First clean up any mode state left behind by tests.
-  (when (and (fboundp 'api-credit-mode)
-             (bound-and-true-p api-credit-mode))
-    (api-credit-mode -1))
-  ;; Restore the user's original global variable values.
-  (dolist (cell saved)
-    (set (car cell) (cdr cell)))
-  ;; Re-enable mode only if it was enabled when the runner was invoked.
-  (when (and mode-enabled-p (fboundp 'api-credit-mode))
-    (api-credit-mode 1)))
+  ;; Only call the mode function when its on/off state changed; this
+  ;; prevents restoring every individual test from stopping and
+  ;; restarting a live polling timer.
+  (let ((current-enabled (and (fboundp 'api-credit-mode)
+                              (bound-and-true-p api-credit-mode))))
+    (unless (eq current-enabled mode-enabled-p)
+      (when current-enabled
+        (api-credit-mode -1)))
+    ;; Restore the user's original global variable values.
+    (dolist (cell saved)
+      (set (car cell) (cdr cell)))
+    (unless (eq current-enabled mode-enabled-p)
+      (when mode-enabled-p
+        (api-credit-mode 1)))))
+
+(defmacro api-credit-test-with-saved-state (&rest body)
+  "Run BODY without leaking api-credit state.
+
+Snapshot the existing non-test `api-credit-*' values and the
+`api-credit-mode' enabled flag, run BODY, then restore the snapshot
+via `unwind-protect'.  This gives every individual ERT test the same
+isolation that `api-credit-test-run' provides to the suite as a whole,
+so direct `(ert t)' also leaves the user's mode and variables intact."
+  (declare (indent 0))
+  `(let ((api-credit-test--saved-state (api-credit-test--snapshot-state))
+         (api-credit-test--mode-enabled (bound-and-true-p api-credit-mode)))
+     (unwind-protect
+         (progn ,@body)
+       (api-credit-test--restore-state api-credit-test--saved-state
+                                       api-credit-test--mode-enabled))))
 
 (defun api-credit-test-run ()
   "Run the ERT test suite for api-credit.
@@ -104,166 +124,180 @@ user's `api-credit-mode' state and `api-credit-*' variables."
 
 (ert-deftest api-credit-test-json-parse-basic ()
   "JSON conversion returns alist with string keys."
-  (let ((input "{\"balance\": 1.5}"))
-    (should (equal (api-credit--json-parse input)
-                   '(("balance" . 1.5))))))
+  (api-credit-test-with-saved-state
+    (let ((input "{\"balance\": 1.5}"))
+      (should (equal (api-credit--json-parse input)
+                     '(("balance" . 1.5)))))))
 
 ;; ---------- PARSERS ----------
 
 (ert-deftest api-credit-test-parse-openrouter-balance-field ()
   "Parse OpenRouter response with top-level balance field."
-  (should (equal (api-credit--parse-openrouter
-                  '(("balance" . "10.50")))
-                 10.5)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-openrouter
+                    '(("balance" . "10.50")))
+                   10.5))))
 
 (ert-deftest api-credit-test-parse-openrouter-credits ()
   "Parse OpenRouter response from the nested credits format."
-  (should (equal (api-credit--parse-openrouter
-                  '(("data" . (("total_credits" . "100")
-                               ("total_usage" . "40.5")))))
-                 59.5)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-openrouter
+                    '(("data" . (("total_credits" . "100")
+                                 ("total_usage" . "40.5")))))
+                   59.5))))
 
 (ert-deftest api-credit-test-parse-openrouter-usage ()
   "Parse OpenRouter response from the usage object."
-  (should (equal (api-credit--parse-openrouter
-                  '(("usage" . (("total_credits" . "200")
-                                ("total_usage" . "75.25")))))
-                 124.75)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-openrouter
+                    '(("usage" . (("total_credits" . "200")
+                                  ("total_usage" . "75.25")))))
+                   124.75))))
 
 (ert-deftest api-credit-test-parse-deepseek-balance-infos ()
   "Parse DeepSeek response using balance_infos vector."
-  (should (equal (api-credit--parse-deepseek
-                  '(("balance_infos" .
-                     [(("total_balance" . "5.5"))])))
-                 5.5)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-deepseek
+                    '(("balance_infos" .
+                       [(("total_balance" . "5.5"))])))
+                   5.5))))
 
 (ert-deftest api-credit-test-parse-deepseek-top-level ()
   "Parse DeepSeek response using top-level balance field."
-  (should (equal (api-credit--parse-deepseek
-                  '(("balance" . "3.25")))
-                 3.25)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-deepseek
+                    '(("balance" . "3.25")))
+                   3.25))))
 
 (ert-deftest api-credit-test-parse-moonshot-nested ()
   "Parse Moonshot response nested inside a data key."
-  (should (equal (api-credit--parse-moonshot
-                  '(("data" . (("available_balance" . "25.75")))))
-                 25.75)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-moonshot
+                    '(("data" . (("available_balance" . "25.75")))))
+                   25.75))))
 
 (ert-deftest api-credit-test-parse-moonshot-top-level ()
   "Parse Moonshot response with flat available_balance key."
-  (should (equal (api-credit--parse-moonshot
-                  '(("available_balance" . "1.99")))
-                 1.99)))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-moonshot
+                    '(("available_balance" . "1.99")))
+                   1.99))))
 
 ;; ---------- BALANCE BAR ----------
 
 (ert-deftest api-credit-test-balance-bar-ranges ()
   "Balance bar uses the expected threshold values."
-  (should (equal (api-credit--balance-bar nil) "[   ]"))
-  (should (equal (api-credit--balance-bar 0) "[   ]"))
-  (should (equal (api-credit--balance-bar -1) "[   ]"))
-  (should (equal (api-credit--balance-bar 0.5) "[▯▯▯]"))
-  (should (equal (api-credit--balance-bar 1.0) "[▯▯▯]"))
-  (should (equal (api-credit--balance-bar 1.1) "[▮▯▯]"))
-  (should (equal (api-credit--balance-bar 2.0) "[▮▯▯]"))
-  (should (equal (api-credit--balance-bar 2.1) "[▮▮▯]"))
-  (should (equal (api-credit--balance-bar 10.0) "[▮▮▯]"))
-  (should (equal (api-credit--balance-bar 10.1) "[▮▮▮]"))
-  (should (equal (api-credit--balance-bar 100) "[▮▮▮]")))
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--balance-bar nil) "[   ]"))
+    (should (equal (api-credit--balance-bar 0) "[   ]"))
+    (should (equal (api-credit--balance-bar -1) "[   ]"))
+    (should (equal (api-credit--balance-bar 0.5) "[▯▯▯]"))
+    (should (equal (api-credit--balance-bar 1.0) "[▯▯▯]"))
+    (should (equal (api-credit--balance-bar 1.1) "[▮▯▯]"))
+    (should (equal (api-credit--balance-bar 2.0) "[▮▯▯]"))
+    (should (equal (api-credit--balance-bar 2.1) "[▮▮▯]"))
+    (should (equal (api-credit--balance-bar 10.0) "[▮▮▯]"))
+    (should (equal (api-credit--balance-bar 10.1) "[▮▮▮]"))
+    (should (equal (api-credit--balance-bar 100) "[▮▮▮]"))))
 
 ;; ---------- FETCH ROUTING ----------
 
 (ert-deftest api-credit-test-fetch-no-auth ()
   "`api-credit--fetch' returns `:error no-auth' when auth-source is empty."
-  (let ((result nil)
-        (backend-called nil))
-    (cl-letf (((symbol-function 'auth-source-search)
-               (lambda (&rest _) nil))
-              ((symbol-function 'api-credit--fetch-curl)
-               (lambda (&rest _) (push t backend-called)))
-              ((symbol-function 'api-credit--fetch-url)
-               (lambda (&rest _) (push t backend-called))))
-      (api-credit--fetch
-       'openrouter
-       (lambda (provider type val)
-         (setq result (list provider type val)))))
-    (should (null backend-called))
-    (should (equal result '(openrouter :error no-auth)))))
+  (api-credit-test-with-saved-state
+    (let ((result nil)
+          (backend-called nil))
+      (cl-letf (((symbol-function 'auth-source-search)
+                 (lambda (&rest _) nil))
+                ((symbol-function 'api-credit--fetch-curl)
+                 (lambda (&rest _) (push t backend-called)))
+                ((symbol-function 'api-credit--fetch-url)
+                 (lambda (&rest _) (push t backend-called))))
+        (api-credit--fetch
+         'openrouter
+         (lambda (provider type val)
+           (setq result (list provider type val)))))
+      (should (null backend-called))
+      (should (equal result '(openrouter :error no-auth))))))
 
 (ert-deftest api-credit-test-fetch-uses-curl-when-present ()
   "`api-credit--fetch' uses the curl backend when an executable exists."
-  (let ((curl-called nil)
-        (url-called nil)
-        (result nil))
-    (cl-letf (((symbol-function 'executable-find)
-               (lambda (_cmd) "/usr/bin/curl"))
-              ((symbol-function 'auth-source-search)
-               (lambda (&rest _) '((:secret "test-key"))))
-              ((symbol-function 'api-credit--fetch-curl)
-               (lambda (provider url apikey callback)
-                 (push (list provider url apikey) curl-called)
-                 (funcall callback provider :error 'timeout)))
-              ((symbol-function 'api-credit--fetch-url)
-               (lambda (&rest _) (push t url-called))))
-      (api-credit--fetch
-       'openrouter
-       (lambda (provider type val)
-         (setq result (list provider type val)))))
-    (should (null url-called))
-    (should (= 1 (length curl-called)))
-    (let ((args (car curl-called)))
-      (should (eq (car args) 'openrouter))
-      (should (string-suffix-p "/api/v1/credits" (cl-second args)))
-      (should (equal (cl-third args) "test-key")))
-    (should (equal result '(openrouter :error timeout)))))
+  (api-credit-test-with-saved-state
+    (let ((curl-called nil)
+          (url-called nil)
+          (result nil))
+      (cl-letf (((symbol-function 'executable-find)
+                 (lambda (_cmd) "/usr/bin/curl"))
+                ((symbol-function 'auth-source-search)
+                 (lambda (&rest _) '((:secret "test-key"))))
+                ((symbol-function 'api-credit--fetch-curl)
+                 (lambda (provider url apikey callback)
+                   (push (list provider url apikey) curl-called)
+                   (funcall callback provider :error 'timeout)))
+                ((symbol-function 'api-credit--fetch-url)
+                 (lambda (&rest _) (push t url-called))))
+        (api-credit--fetch
+         'openrouter
+         (lambda (provider type val)
+           (setq result (list provider type val)))))
+      (should (null url-called))
+      (should (= 1 (length curl-called)))
+      (let ((args (car curl-called)))
+        (should (eq (car args) 'openrouter))
+        (should (string-suffix-p "/api/v1/credits" (cl-second args)))
+        (should (equal (cl-third args) "test-key")))
+      (should (equal result '(openrouter :error timeout))))))
 
 (ert-deftest api-credit-test-fetch-fallback-when-no-curl ()
   "`api-credit--fetch' falls back to url backend when curl is missing."
-  (let ((curl-called nil)
-        (url-called nil)
-        (result nil))
-    (cl-letf (((symbol-function 'executable-find)
-               (lambda (_cmd) nil))
-              ((symbol-function 'auth-source-search)
-               (lambda (&rest _) '((:secret "test-key"))))
-              ((symbol-function 'api-credit--fetch-curl)
-               (lambda (&rest _) (push t curl-called)))
-              ((symbol-function 'api-credit--fetch-url)
-               (lambda (provider url apikey callback)
-                 (push (list provider url apikey) url-called)
-                 (funcall callback provider :error 'url-failed))))
-      (setq api-credit--url-fallback-announced nil)
-      (api-credit--fetch
-       'openrouter
-       (lambda (provider type val)
-         (setq result (list provider type val)))))
-    (should (null curl-called))
-    (should (= 1 (length url-called)))
-    (let ((args (car url-called)))
-      (should (eq (car args) 'openrouter))
-      (should (string-suffix-p "/api/v1/credits" (cl-second args)))
-      (should (equal (cl-third args) "test-key")))
-    (should (equal result '(openrouter :error url-failed)))))
+  (api-credit-test-with-saved-state
+    (let ((api-credit--url-fallback-announced nil)
+          (curl-called nil)
+          (url-called nil)
+          (result nil))
+      (cl-letf (((symbol-function 'executable-find)
+                 (lambda (_cmd) nil))
+                ((symbol-function 'auth-source-search)
+                 (lambda (&rest _) '((:secret "test-key"))))
+                ((symbol-function 'api-credit--fetch-curl)
+                 (lambda (&rest _) (push t curl-called)))
+                ((symbol-function 'api-credit--fetch-url)
+                 (lambda (provider url apikey callback)
+                   (push (list provider url apikey) url-called)
+                   (funcall callback provider :error 'url-failed))))
+        (api-credit--fetch
+         'openrouter
+         (lambda (provider type val)
+           (setq result (list provider type val)))))
+      (should (null curl-called))
+      (should (= 1 (length url-called)))
+      (let ((args (car url-called)))
+        (should (eq (car args) 'openrouter))
+        (should (string-suffix-p "/api/v1/credits" (cl-second args)))
+        (should (equal (cl-third args) "test-key")))
+      (should (equal result '(openrouter :error url-failed))))))
 
 ;; ---------- MODE LIFECYCLE ----------
 
 (ert-deftest api-credit-test-default-provider-set-after-mode ()
   "Changing the default provider after mode is enabled reroutes display."
-  (unwind-protect
-      (progn
-        (setq api-credit-active-providers '(openrouter deepseek moonshot)
-              api-credit--state (make-hash-table :test 'eq)
-              api-credit--current-index 0
-              api-credit-mode-string "")
-        (cl-letf (((symbol-function 'api-credit--poll-all) #'ignore)
-                  ((symbol-function 'run-with-timer) (lambda (&rest _) nil)))
-          (api-credit-mode 1)
-          (customize-set-variable 'api-credit-default-provider 'deepseek)
-          (should (= api-credit--current-index 1))
-          (should (string-match-p "deepseek" api-credit-mode-string))))
-    (when (bound-and-true-p api-credit-mode)
-      (api-credit-mode -1))
-    (setq api-credit-default-provider nil)))
+  (api-credit-test-with-saved-state
+    (let ((api-credit-mode t)        ; pretend mode is enabled
+          (api-credit-active-providers '(openrouter deepseek moonshot))
+          (api-credit--state (make-hash-table :test 'eq))
+          (api-credit--current-index 0)
+          (api-credit-mode-string "")
+          (saved-default (default-value 'api-credit-default-provider)))
+      (unwind-protect
+          (progn
+            ;; `customize-set-variable' runs the `:set' function that
+            ;; users trigger when changing the Custom option.
+            (customize-set-variable 'api-credit-default-provider 'deepseek)
+            (should (= api-credit--current-index 1))
+            (should (string-match-p "deepseek" api-credit-mode-string)))
+        ;; `customize-set-variable' writes the default value slot, so
+        ;; restore that slot too.
+        (setq-default api-credit-default-provider saved-default)))))
 
 (provide 'api-credit-test)
 
