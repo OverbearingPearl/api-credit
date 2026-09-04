@@ -57,16 +57,53 @@ loaded, so it works even when called from a non-file Emacs session."
         (dolist (file (directory-files lisp-dir t "\\.el\\'"))
           (load-file file))))))
 
+(defun api-credit-test--snapshot-state ()
+  "Return current non-test `api-credit-*' global values as an alist.
+
+`api-credit-mode' is intentionally excluded; its runtime state is
+restored by calling the mode function rather than by `set'."
+  (let ((saved nil))
+    (mapatoms
+     (lambda (sym)
+       (let ((name (symbol-name sym)))
+         (when (and (string-prefix-p "api-credit-" name)
+                    (not (string-prefix-p "api-credit-test" name))
+                    (not (eq sym 'api-credit-mode))
+                    (boundp sym))
+           (push (cons sym (symbol-value sym)) saved)))))
+    saved))
+
+(defun api-credit-test--restore-state (saved mode-enabled-p)
+  "Restore SAVED variable values and MODE-ENABLED-P mode state."
+  ;; First clean up any mode state left behind by tests.
+  (when (fboundp 'api-credit-mode)
+    (api-credit-mode -1))
+  ;; Restore the user's original global variable values.
+  (dolist (cell saved)
+    (set (car cell) (cdr cell)))
+  ;; Re-enable mode only if it was enabled when the runner was invoked.
+  (when (and mode-enabled-p (fboundp 'api-credit-mode))
+    (api-credit-mode 1)))
+
 (defun api-credit-test-run ()
   "Run the ERT test suite for api-credit.
 
 Reloads the production code from source, then executes the test
-suite in batch or interactive mode as appropriate."
+suite in batch or interactive mode as appropriate, preserving the
+user's `api-credit-mode' state and `api-credit-*' variables."
   (interactive)
-  (api-credit-test-reload-under-test)
-  (if noninteractive
-      (ert-run-tests-batch-and-exit "api-credit-")
-    (ert t)))
+  (let ((mode-enabled-p (bound-and-true-p api-credit-mode))
+        (saved-state (api-credit-test--snapshot-state)))
+    ;; Cleanly disable the mode before reloading its code.
+    (when mode-enabled-p
+      (api-credit-mode -1))
+    (unwind-protect
+        (progn
+          (api-credit-test-reload-under-test)
+          (if noninteractive
+              (ert-run-tests-batch-and-exit "api-credit-")
+            (ert t)))
+      (api-credit-test--restore-state saved-state mode-enabled-p))))
 
 ;; ---------- JSON ----------
 
