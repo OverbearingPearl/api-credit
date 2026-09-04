@@ -73,7 +73,8 @@ restored by calling the mode function rather than by `set'."
   ;; prevents restoring every individual test from stopping and
   ;; restarting a live polling timer.
   (let ((current-enabled (and (fboundp 'api-credit-mode)
-                              (bound-and-true-p api-credit-mode))))
+                              (bound-and-true-p api-credit-mode)))
+        (saved-index (cdr (assq 'api-credit--current-index saved))))
     (unless (eq current-enabled mode-enabled-p)
       (when current-enabled
         (api-credit-mode -1)))
@@ -82,7 +83,18 @@ restored by calling the mode function rather than by `set'."
       (set (car cell) (cdr cell)))
     (unless (eq current-enabled mode-enabled-p)
       (when mode-enabled-p
-        (api-credit-mode 1)))))
+        (api-credit-mode 1)))
+    ;; Re-enabling `api-credit-mode' points the mode line at
+    ;; `api-credit-default-provider' (or, when that is nil, at the first
+    ;; active provider), overwriting the index restored above.  Put the
+    ;; user's original provider choice back so running the test suite
+    ;; never changes which provider is displayed.
+    (when (and mode-enabled-p
+               (bound-and-true-p api-credit-mode)
+               (integerp saved-index)
+               (< -1 saved-index (length api-credit-active-providers)))
+      (setq api-credit--current-index saved-index)
+      (api-credit--update-mode-string))))
 
 (defmacro api-credit-test-with-saved-state (&rest body)
   "Run BODY without leaking api-credit state.
@@ -298,6 +310,48 @@ user's `api-credit-mode' state and `api-credit-*' variables."
         ;; `customize-set-variable' writes the default value slot, so
         ;; restore that slot too.
         (setq-default api-credit-default-provider saved-default)))))
+
+(ert-deftest api-credit-test-restore-state-keeps-current-provider ()
+  "Running the suite must not change the displayed provider.
+`api-credit-mode' resets the display to `api-credit-default-provider'
+\(or the first active provider) each time it is enabled, so
+`api-credit-test--restore-state' must restore the saved
+`api-credit--current-index' after re-enabling the mode."
+  (api-credit-test-with-saved-state
+    (let ((api-credit-mode nil)     ; shadow real mode/timer state
+          (api-credit-active-providers '(openrouter deepseek moonshot))
+          (api-credit-default-provider nil)
+          (api-credit--state (make-hash-table :test 'eq))
+          (api-credit-mode-string ""))
+      ;; Simulate the mode-enable reset without starting timers or
+      ;; sending HTTP requests.
+      (cl-letf (((symbol-function 'api-credit-mode)
+                 (lambda (arg)
+                   (cond
+                    ((eq arg 1)
+                     (setq api-credit-mode t)
+                     (setq api-credit--current-index
+                           (or (and api-credit-default-provider
+                                    (cl-position
+                                     api-credit-default-provider
+                                     api-credit-active-providers))
+                               0)))
+                    ((eq arg -1)
+                     (setq api-credit-mode nil))))))
+        ;; The user is currently looking at deepseek.
+        (setq api-credit--current-index 1)
+        (api-credit--update-mode-string)
+        ;; Restore as `api-credit-test-run' would: saved state says the
+        ;; mode was enabled, while the mode is now disabled.
+        (api-credit-test--restore-state
+         (list (cons 'api-credit--current-index 1)
+               (cons 'api-credit-active-providers
+                     '(openrouter deepseek moonshot))
+               (cons 'api-credit-default-provider nil))
+         t)
+        ;; Deepseek must remain selected and visible.
+        (should (= api-credit--current-index 1))
+        (should (string-match-p "deepseek" api-credit-mode-string))))))
 
 (provide 'api-credit-test)
 
