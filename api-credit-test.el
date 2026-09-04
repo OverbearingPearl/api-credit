@@ -20,10 +20,6 @@
 This value is captured while this file is being loaded so it stays
 valid even after `unload-feature' has cleared various variables.")
 
-(defun api-credit-test--root-directory ()
-  "Return directory where api-credit source files are located."
-  api-credit-test--dir)
-
 (defun api-credit-test-reload-under-test ()
   "Reload api-credit source files from `api-credit-test--dir'.
 
@@ -39,17 +35,15 @@ loaded, so it works even when called from a non-file Emacs session."
       (unload-feature 'api-credit t))
     (mapatoms
      (lambda (sym)
-       (let ((sym-name (symbol-name sym)))
-         (when (and (string-prefix-p "api-credit-" sym-name)
-                    (not (string-prefix-p "api-credit-test" sym-name))
-                    (boundp sym))
+       (when (let ((name (symbol-name sym)))
+               (and (string-prefix-p "api-credit-" name)
+                    (not (string-prefix-p "api-credit-test" name))))
+         (when (boundp sym)
            (makunbound sym))
          ;; Clear Custom bookkeeping left over from previous loads, or
          ;; re-evaluating the defcustoms may try to restore a stale
          ;; saved value and eval a not-yet-bound symbol.
-         (when (and (string-prefix-p "api-credit-" sym-name)
-                    (not (string-prefix-p "api-credit-test" sym-name))
-                    (symbol-plist sym))
+         (when (symbol-plist sym)
            (setplist sym nil)))))
     (load-file (expand-file-name "api-credit.el" dir))
     (let ((lisp-dir (expand-file-name "lisp" dir)))
@@ -76,7 +70,8 @@ restored by calling the mode function rather than by `set'."
 (defun api-credit-test--restore-state (saved mode-enabled-p)
   "Restore SAVED variable values and MODE-ENABLED-P mode state."
   ;; First clean up any mode state left behind by tests.
-  (when (fboundp 'api-credit-mode)
+  (when (and (fboundp 'api-credit-mode)
+             (bound-and-true-p api-credit-mode))
     (api-credit-mode -1))
   ;; Restore the user's original global variable values.
   (dolist (cell saved)
