@@ -74,7 +74,7 @@
   :group 'api-credit)
 
 (defcustom api-credit-timeout 10
-  "Seconds to wait for an HTTP response before giving up."
+  "Seconds to wait for an HTTP request (passed to curl as `--max-time')."
   :type 'integer
   :group 'api-credit)
 
@@ -236,13 +236,10 @@ Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
          (url (plist-get spec :url))
          (auth (car (auth-source-search :host host :require '(:secret))))
          (done nil)
-         (timer nil)
          (process nil)
          (output-buffer (generate-new-buffer " *api-curl-output*"))
          (error-buffer (generate-new-buffer " *api-curl-error*"))
          (finish (lambda (sym type val)
-                   (when timer
-                     (cancel-timer timer))
                    (setq done t)
                    ;; Clean up process tracking
                    (remhash sym api-credit--active-processes)
@@ -264,13 +261,6 @@ Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
                          "--max-time" (number-to-string api-credit-timeout)
                          "--header" (concat "Authorization: Bearer " api-key)
                          url)))
-
-        ;; Set timeout timer
-        (setq timer
-              (run-with-timer api-credit-timeout nil
-                              (lambda ()
-                                (unless done
-                                  (funcall finish provider :error 'timeout)))))
 
         ;; Start curl process
         (condition-case _
@@ -298,6 +288,12 @@ Error symbols can be: `no-auth', `timeout', `curl-failed', `http',
                                        (json-error
                                         (funcall finish provider :error 'json)))))
                                (funcall finish provider :error 'http))))
+                          ;; curl exit code 28 = CURLE_OPERATION_TIMEDOUT,
+                          ;; i.e. --max-time elapsed (see curl(1) man page,
+                          ;; EXIT CODES).
+                          ((and (string-prefix-p "exited abnormally" event)
+                                (= (process-exit-status proc) 28))
+                           (funcall finish provider :error 'timeout))
                           ((or (string-prefix-p "exited abnormally" event)
                                (string-prefix-p "failed" event))
                            (funcall finish provider :error 'curl-failed))
