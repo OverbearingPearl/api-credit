@@ -206,6 +206,13 @@ user's `api-credit-mode' state and `api-credit-*' variables."
                     '(("available_balance" . "1.99")))
                    1.99))))
 
+(ert-deftest api-credit-test-parse-moonshot-flat-balance ()
+  "Parse Moonshot response when only `balance' field is present."
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit--parse-moonshot
+                    '(("balance" . "8.75")))
+                   8.75))))
+
 ;; ---------- BALANCE BAR ----------
 
 (ert-deftest api-credit-test-balance-bar-ranges ()
@@ -629,6 +636,44 @@ Return (PROVIDER RESULT-TYPE VALUE) list delivered to CALLBACK."
       (kill-buffer buf))
     result))
 
+(defun api-credit-test--run-curl-fetch (event exit-code &optional output)
+  "Drive `api-credit--fetch-curl' to invoke its callback.
+EVENT is the first argument passed to the curl sentinel.
+EXIT-CODE is returned by `process-exit-status'.
+OUTPUT is text placed in the simulated curl output buffer.
+
+Return (RESULT-TYPE VALUE) list delivered to callback."
+  (let* ((proc (make-symbol "curl-proc"))
+         (out-buffer (generate-new-buffer " *api-credit-curl-out*"))
+         (err-buffer (generate-new-buffer " *api-credit-curl-err*"))
+         (sentinel nil)
+         (seen nil))
+    (with-current-buffer out-buffer
+      (insert (or output "")))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'generate-new-buffer)
+                     (lambda (&rest _) out-buffer))
+                    ((symbol-function 'make-process)
+                     (lambda (&rest args)
+                       (setq sentinel (plist-get args :sentinel))
+                       proc))
+                    ((symbol-function 'process-exit-status)
+                     (lambda (_proc) exit-code))
+                    ((symbol-function 'process-live-p) (lambda (_proc) nil))
+                    ((symbol-function 'delete-process) (lambda (&rest _) nil))
+                    ((symbol-function 'kill-buffer) (lambda (&rest _) nil))
+                    ((symbol-function 'buffer-live-p) (lambda (&rest _) t))
+                    ((symbol-function 'remhash) (lambda (&rest _) nil)))
+            (api-credit--fetch-curl
+             'openrouter "https://api.test/balance" "test-key"
+             (lambda (_provider type val) (setq seen (list type val))))
+            (when sentinel
+              (funcall sentinel proc event))))
+      (when (buffer-live-p out-buffer) (kill-buffer out-buffer))
+      (when (buffer-live-p err-buffer) (kill-buffer err-buffer)))
+    seen))
+
 (ert-deftest api-credit-test-fetch-url-success ()
   "The `url.el' backend parses a 2xx JSON body."
   (api-credit-test-with-saved-state
@@ -683,6 +728,41 @@ Return (PROVIDER RESULT-TYPE VALUE) list delivered to CALLBACK."
         (funcall timeout-fn))
       (when (buffer-live-p buf) (kill-buffer buf))
       (should (equal result '(openrouter :error timeout))))))
+
+(ert-deftest api-credit-test-fetch-curl-success ()
+  "Curl backend parses a JSON body when exit code is zero."
+  (api-credit-test-with-saved-state
+    (let ((result (api-credit-test--run-curl-fetch
+                   "finished\n" 0 "{\"balance\": 5.5}")))
+      (should (equal result '(:ok (("balance" . 5.5))))))))
+
+(ert-deftest api-credit-test-fetch-curl-http-error ()
+  "Curl backend reports HTTP error for non-zero exit code."
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit-test--run-curl-fetch
+                    "finished\n" 1 "ignored")
+                   '(:error http)))))
+
+(ert-deftest api-credit-test-fetch-curl-timeout ()
+  "Curl backend reports timeout when exit code is 28."
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit-test--run-curl-fetch
+                    "exited abnormally" 28 "")
+                   '(:error timeout)))))
+
+(ert-deftest api-credit-test-fetch-curl-failed ()
+  "Curl backend reports `curl-failed' on abnormal termination."
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit-test--run-curl-fetch
+                    "exited abnormally" 3 "")
+                   '(:error curl-failed)))))
+
+(ert-deftest api-credit-test-fetch-curl-json-error ()
+  "Curl backend reports JSON error when output is malformed."
+  (api-credit-test-with-saved-state
+    (should (equal (api-credit-test--run-curl-fetch
+                    "finished\n" 0 "not-json-body")
+                   '(:error json)))))
 
 (provide 'api-credit-test)
 
