@@ -39,9 +39,18 @@ loaded, so it works even when called from a non-file Emacs session."
       (unload-feature 'api-credit t))
     (mapatoms
      (lambda (sym)
-       (when (and (string-prefix-p "api-credit-" (symbol-name sym))
-                  (boundp sym))
-         (makunbound sym))))
+       (let ((sym-name (symbol-name sym)))
+         (when (and (string-prefix-p "api-credit-" sym-name)
+                    (not (string-prefix-p "api-credit-test" sym-name))
+                    (boundp sym))
+           (makunbound sym))
+         ;; Clear Custom bookkeeping left over from previous loads, or
+         ;; re-evaluating the defcustoms may try to restore a stale
+         ;; saved value and eval a not-yet-bound symbol.
+         (when (and (string-prefix-p "api-credit-" sym-name)
+                    (not (string-prefix-p "api-credit-test" sym-name))
+                    (symbol-plist sym))
+           (setplist sym nil)))))
     (load-file (expand-file-name "api-credit.el" dir))
     (let ((lisp-dir (expand-file-name "lisp" dir)))
       (when (file-directory-p lisp-dir)
@@ -203,6 +212,26 @@ suite in batch or interactive mode as appropriate."
       (should (string-suffix-p "/api/v1/credits" (cl-second args)))
       (should (equal (cl-third args) "test-key")))
     (should (equal result '(openrouter :error url-failed)))))
+
+;; ---------- MODE LIFECYCLE ----------
+
+(ert-deftest api-credit-test-default-provider-set-after-mode ()
+  "Changing the default provider after mode is enabled reroutes display."
+  (unwind-protect
+      (progn
+        (setq api-credit-active-providers '(openrouter deepseek moonshot)
+              api-credit--state (make-hash-table :test 'eq)
+              api-credit--current-index 0
+              api-credit-mode-string "")
+        (cl-letf (((symbol-function 'api-credit--poll-all) #'ignore)
+                  ((symbol-function 'run-with-timer) (lambda (&rest _) nil)))
+          (api-credit-mode 1)
+          (customize-set-variable 'api-credit-default-provider 'deepseek)
+          (should (= api-credit--current-index 1))
+          (should (string-match-p "deepseek" api-credit-mode-string))))
+    (when (bound-and-true-p api-credit-mode)
+      (api-credit-mode -1))
+    (setq api-credit-default-provider nil)))
 
 (provide 'api-credit-test)
 

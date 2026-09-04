@@ -81,15 +81,6 @@ backend enforces it with a timer."
   :type 'integer
   :group 'api-credit)
 
-(defcustom api-credit-default-provider nil
-  "Default provider to display on startup.
-If nil, start with the first provider in `api-credit-active-providers'.
-Otherwise, should be a symbol like `openrouter', `deepseek', or `moonshot'
-that exists in `api-credit-active-providers'."
-  :type '(choice (const :tag "First active provider" nil)
-                 (symbol :tag "Specific provider"))
-  :group 'api-credit)
-
 (defcustom api-credit-active-providers '(openrouter deepseek moonshot)
   "List of providers to display.
 Each element should be a symbol matching those in `api-credit--providers'.
@@ -136,6 +127,22 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 
 (defvar api-credit--current-index 0
   "Index of currently displayed provider in `api-credit-active-providers'.")
+
+(defcustom api-credit-default-provider nil
+  "Default provider to display on startup.
+If nil, start with the first provider in `api-credit-active-providers'.
+Otherwise, should be a symbol like `openrouter', `deepseek', or `moonshot'
+that exists in `api-credit-active-providers'."
+  :type '(choice (const :tag "First active provider" nil)
+                 (symbol :tag "Specific provider"))
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (bound-and-true-p api-credit-mode)
+           (setq api-credit--current-index
+                 (or (and val (cl-position val api-credit-active-providers))
+                     0))
+           (api-credit--update-mode-string)))
+  :group 'api-credit)
 
 (defvar api-credit--url-fallback-announced nil
   "This variable is non-nil once the fallback to `url.el' has been announced.")
