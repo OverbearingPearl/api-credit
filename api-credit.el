@@ -389,7 +389,7 @@ is enforced with a timer that kills the connection."
                        (goto-char (point-min))
                        (let* ((status-line (buffer-substring
                                             (point)
-                                            (progn (end-of-line) (point))))
+                                            (line-end-position)))
                               (code (and (string-match
                                           "HTTP/[0-9.]+[ \t]+\\([0-9]+\\)"
                                           status-line)
