@@ -6,7 +6,7 @@
 ;; URL: https://github.com/OverbearingPearl/api-credit
 ;; Version: 0.1.3
 ;; Package-Requires: ((emacs "25.1"))
-;; Keywords: comm, convenience, ai, llm, api, balance, credits, modeline, mode-line, provider, extensible, universal, balance-monitor, openrouter, deepseek, moonshot, openai, anthropic, gemini, mistral, groq, perplexity, cohere
+;; Keywords: comm, convenience
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
