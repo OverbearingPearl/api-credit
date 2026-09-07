@@ -17,10 +17,17 @@
 ;; `api-credit--providers'.
 ;;
 ;; Currently bundled providers: OpenRouter (USD), DeepSeek (CNY),
-;; Moonshot (CNY).  However the design makes it trivial to add many
-;; others - OpenAI, Anthropic, Mistral, Cohere, Gemini, Groq,
-;; Perplexity, and any provider that exposes a balance or usage
-;; endpoint.
+;; Moonshot (CNY).  Any provider that exposes a balance endpoint
+;; reachable with a plain API key (Bearer token) can be added the
+;; same way.
+;;
+;; Some major providers are intentionally absent because they offer
+;; no public balance API queryable with a regular API key: OpenAI
+;; (its legacy /v1/dashboard/billing/* routes were unofficial and
+;; are no longer reliable), Anthropic (the Admin API reports usage
+;; only and requires a separate admin key) and Google Gemini
+;; (billing is only available through the OAuth-protected Google
+;; Cloud Billing API).
 ;;
 ;; If you use a service not listed above, please contribute a
 ;; provider entry.  Each entry lives in `api-credit--providers' and

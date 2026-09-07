@@ -41,13 +41,27 @@ machine moonshot.cn password sk-...
 
 ## Supported Providers
 
-| Provider | Status | Balance Endpoint |
-|----------|--------|------------------|
-| OpenRouter | yes | `https://openrouter.ai/api/v1/credits` |
-| DeepSeek | yes | `https://api.deepseek.com/user/balance` |
-| Moonshot | yes | `https://api.moonshot.cn/v1/users/me/balance` |
-| Anthropic | no | No public balance API |
-| OpenAI | no | No public balance API |
+| Provider | Balance Endpoint |
+|----------|------------------|
+| OpenRouter | `https://openrouter.ai/api/v1/credits` |
+| DeepSeek | `https://api.deepseek.com/user/balance` |
+| Moonshot | `https://api.moonshot.cn/v1/users/me/balance` |
+
+## Not Supported
+
+These providers do not offer a public balance API that can be
+queried with a plain API key, so `api-credit` cannot show them:
+
+- **OpenAI** — no official balance endpoint; the legacy
+  `/v1/dashboard/billing/*` routes were unofficial and are no longer
+  reliable
+- **Anthropic** — the Admin API reports usage only and requires a
+  separate admin key
+- **Google (Gemini)** — billing is only available through the
+  OAuth-protected Google Cloud Billing API
+
+Mistral, Cohere, Groq, Perplexity and xAI also publish no public
+balance API.
 
 ## Commands
 
