@@ -60,8 +60,16 @@ queried with a plain API key, so `api-credit` cannot show them:
 - **Google (Gemini)** — billing is only available through the
   OAuth-protected Google Cloud Billing API
 
-Mistral, Cohere, Groq, Perplexity and xAI also publish no public
-balance API.
+- **Baidu Qianfan / Volcengine Ark (Doubao) / Tencent Hunyuan /
+  iFlytek Spark** — inference keys can only call the models;
+  account balances live in each cloud's billing system, which
+  requires per-cloud signed authentication (AK/SK or IAM) rather
+  than a plain Bearer API key
+
+Mistral, Cohere, Groq, Perplexity and xAI likewise expose no
+remaining-credit endpoint callable with a plain API key — usage
+analytics and rate limits may exist, but nothing that answers
+"how much do I have left?"
 
 ## Commands
 

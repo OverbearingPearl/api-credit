@@ -17,9 +17,15 @@
 ;; `api-credit--providers'.
 ;;
 ;; Currently bundled providers: OpenRouter (USD), DeepSeek (CNY),
-;; Moonshot (CNY).  Any provider that exposes a balance endpoint
-;; reachable with a plain API key (Bearer token) can be added the
-;; same way.
+;; Moonshot (CNY).  The supported pattern is: one authenticated
+;; GET request with a plain API key (Bearer token) that answers
+;; "how much do I have left?".  Any provider fitting that pattern
+;; can be added the same way.
+;;
+;; The major Chinese cloud platforms (Baidu Qianfan, Volcengine
+;; Ark, Tencent Hunyuan, iFlytek Spark) are likewise absent:
+;; their model keys cannot read the cloud-side balance, which
+;; requires each vendor's signed authentication.
 ;;
 ;; Some major providers are intentionally absent because they offer
 ;; no public balance API queryable with a regular API key: OpenAI
