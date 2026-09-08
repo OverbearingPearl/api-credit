@@ -54,8 +54,8 @@
 ;; Setup: add entries to ~/.authinfo or ~/.authinfo.gpg:
 ;;
 ;;   machine openrouter.ai password sk-or-v1-...
-;;   machine deepseek.com password sk-...
-;;   machine moonshot.cn password sk-...
+;;   machine api.deepseek.com password sk-...
+;;   machine api.moonshot.cn password sk-...
 ;;   machine api.myprovider.com password sk-...
 ;;
 ;; Then enable `api-credit-mode' globally.
@@ -114,14 +114,14 @@ Set to nil to display all configured providers."
     (deepseek
      :name "deepseek"
      :currency "¥"
-     :host "deepseek.com"
+     :host "api.deepseek.com"
      :url "https://api.deepseek.com/user/balance"
      :recharge-url "https://platform.deepseek.com/"
      :parser api-credit--parse-deepseek)
     (moonshot
      :name "moonshot"
      :currency "¥"
-     :host "moonshot.cn"
+     :host "api.moonshot.cn"
      :url "https://api.moonshot.cn/v1/users/me/balance"
      :recharge-url "https://platform.moonshot.cn/"
      :parser api-credit--parse-moonshot))
