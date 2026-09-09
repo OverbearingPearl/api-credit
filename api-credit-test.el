@@ -140,7 +140,7 @@ user's `api-credit-mode' state and `api-credit-*' variables."
             (load-file api-credit-test--file))
           (if noninteractive
               (ert-run-tests-batch-and-exit "api-credit-")
-            (ert t)))
+            (ert "api-credit-")))
       (api-credit-test--restore-state saved-state mode-enabled-p))))
 
 ;; ---------- JSON ----------
