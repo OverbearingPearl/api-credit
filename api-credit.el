@@ -4,7 +4,7 @@
 ;; Author: OverbearingPearl <OverbearingPearl@outlook.com>
 ;; Assisted-by: DeepSeek:deepseek-v4-flash, GLM:glm-5.3-flash, Laguna:laguna-s-2.1
 ;; URL: https://github.com/OverbearingPearl/api-credit
-;; Version: 1.1.0
+;; Version: 1.1.1
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: comm, convenience
 ;; SPDX-License-Identifier: GPL-3.0-or-later
