@@ -77,6 +77,7 @@
 (require 'cl-lib)
 (require 'auth-source)
 (require 'url)
+(require 'url-http)
 
 (defgroup api-credit nil
   "AI API balance in the modeline."
@@ -91,6 +92,11 @@
   "Seconds to wait for an HTTP request.
 The curl backend passes it to curl as `--max-time'; the url.el
 backend enforces it with a timer."
+  :type 'integer
+  :group 'api-credit)
+
+(defcustom api-credit-retry-delay 5
+  "Seconds to wait before retrying a provider after a transient error."
   :type 'integer
   :group 'api-credit)
 
@@ -134,6 +140,9 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 
 (defvar api-credit--timer nil
   "Timer for automatic polling.")
+
+(defvar api-credit--retry-timers (make-hash-table :test 'eq)
+  "Hash table mapping provider symbols to pending retry timers.")
 
 (defvar api-credit--active-processes (make-hash-table :test 'eq)
   "Hash table mapping provider symbols to their active curl processes.")
@@ -346,8 +355,22 @@ See `api-credit--fetch' for the CALLBACK protocol."
                            (string-prefix-p "failed" event))
                        (funcall finish :error 'curl-failed))
                       ((string= event "killed\n")
-                       ;; Process was killed by timeout or cleanup
-                       nil))))
+                       ;; Distinguish intentional cancels from unexpected
+                       ;; kills (e.g. after the system sleeps/wakes).
+                       (if (gethash provider api-credit--active-processes)
+                           ;; Unexpected kill: report failure so buffers,
+                           ;; hash entry and callback are always released.
+                           (funcall finish :error 'curl-failed)
+                         ;; Intentional cancel: cleanup already removed
+                         ;; the hash entry, so release buffers without
+                         ;; invoking CALLBACK (a stale process must not
+                         ;; clobber newer fetch results).
+                         (progn
+                           (setq done t)
+                           (when (buffer-live-p output-buffer)
+                             (kill-buffer output-buffer))
+                           (when (buffer-live-p error-buffer)
+                             (kill-buffer error-buffer))))))))
                  :noquery t))
           ;; Track active process
           (puthash provider process api-credit--active-processes))
@@ -378,6 +401,10 @@ is enforced with a timer that kills the connection."
                     (kill-buffer buffer))))
          (handle (lambda (type val)
                    (unless done
+                     ;; Mark done BEFORE aborting: aborting can make
+                     ;; url-retrieve's callback fire synchronously, and
+                     ;; with DONE set that late callback is ignored.
+                     (setq done t)
                      (funcall abort)
                      (funcall finish type val)))))
     (setq timer
@@ -386,7 +413,8 @@ is enforced with a timer that kills the connection."
                             (funcall handle :error 'timeout))))
     (condition-case _
         (setq buffer
-              (let ((url-request-method "GET")
+              (let ((url-http-attempt-keepalives nil)
+                    (url-request-method "GET")
                     (url-request-extra-headers
                      `(("Authorization" . ,(concat "Bearer " api-key)))))
                 (url-retrieve
@@ -426,11 +454,18 @@ is enforced with a timer that kills the connection."
 (defun api-credit--cleanup-processes ()
   "Clean up all pending curl processes created by api-credit.
 Only cleans up processes that were tracked in `api-credit--active-processes'."
-  (maphash (lambda (provider proc)
-             (when (process-live-p proc)
-               (delete-process proc))
-             (remhash provider api-credit--active-processes))
-           api-credit--active-processes))
+  (let ((procs nil))
+    (maphash (lambda (provider proc)
+               (push (cons provider proc) procs))
+             api-credit--active-processes)
+    (dolist (entry procs)
+      (let ((provider (car entry))
+            (proc (cdr entry)))
+        ;; Remove first so the sentinel sees an intentional cancel and
+        ;; does not report a spurious error result.
+        (remhash provider api-credit--active-processes)
+        (when (process-live-p proc)
+          (delete-process proc))))))
 
 (defun api-credit--update-state (provider result-type value)
   "Update state for PROVIDER.
@@ -446,6 +481,49 @@ Updates `api-credit--state' hash table and refreshes mode line."
                (:error `(:balance ,old-balance :error ,value :timestamp ,(current-time))))
              api-credit--state))
   (api-credit--update-mode-string))
+
+(defun api-credit--handle-fetch-result (sym type val &optional no-retry)
+  "Update state from a fetch result for SYM.
+TYPE is :ok or :error; VAL is the parsed balance or error symbol.
+When NO-RETRY is non-nil, transient failures are not rescheduled."
+  (if (eq type :ok)
+      (let* ((spec (cdr (assq sym api-credit--providers)))
+             (parser (plist-get spec :parser))
+             (balance (funcall parser val)))
+        (if balance
+            (api-credit--update-state sym :ok balance)
+          (api-credit--update-state sym :error 'parse)))
+    (api-credit--update-state sym type val)
+    (unless no-retry
+      (when (memq type '(timeout curl-failed url-failed http json))
+        (api-credit--schedule-retry sym)))))
+
+(defun api-credit--schedule-retry (provider)
+  "Schedule a one-shot retry for PROVIDER after a transient error.
+Keeps at most one pending retry per provider."
+  (unless (gethash provider api-credit--retry-timers)
+    (puthash provider
+             (run-with-timer api-credit-retry-delay nil
+                             #'api-credit--retry-provider provider)
+             api-credit--retry-timers)))
+
+(defun api-credit--cancel-retry-timers ()
+  "Cancel all pending retry timers."
+  (maphash (lambda (_provider timer)
+             (when (timerp timer)
+               (cancel-timer timer)))
+           api-credit--retry-timers)
+  (clrhash api-credit--retry-timers))
+
+(defun api-credit--retry-provider (provider)
+  "Fetch PROVIDER once after a previous transient error.
+A second failure is not retried automatically; the normal poll timer
+or a manual refresh takes over."
+  (remhash provider api-credit--retry-timers)
+  (api-credit--fetch
+   provider
+   (lambda (sym type val)
+     (api-credit--handle-fetch-result sym type val t))))
 
 (defun api-credit--balance-bar (balance)
   "Return 3‑character Unicode bar representing BALANCE relative to 10.0.
@@ -488,22 +566,15 @@ Updates the mode line display based on current provider and balance."
   "Poll all configured providers asynchronously.
 Initiates fetch requests for each provider in `api-credit--providers'."
   (dolist (provider api-credit--providers)
-    (api-credit--fetch
-     (car provider)
-     (lambda (sym type val)
-       (if (eq type :ok)
-           (let* ((spec (cdr (assq sym api-credit--providers)))
-                  (parser (plist-get spec :parser))
-                  (balance (funcall parser val)))
-             (if balance
-                 (api-credit--update-state sym :ok balance)
-               (api-credit--update-state sym :error 'parse)))
-         (api-credit--update-state sym type val))))))
+    (api-credit--fetch (car provider) #'api-credit--handle-fetch-result)))
 
 (defun api-credit-refresh ()
   "Force refresh all balances.
-Interactive command that triggers immediate polling of all providers."
+Cancels pending retries and in-flight processes first so a manual
+refresh always starts from a clean slate."
   (interactive)
+  (api-credit--cancel-retry-timers)
+  (api-credit--cleanup-processes)
   (api-credit--poll-all))
 
 (defun api-credit-cycle ()
@@ -559,6 +630,8 @@ Interactive command that displays formatted tooltip in minibuffer."
 
 (defun api-credit--mode-start ()
   "Start periodic polling and display for `api-credit-mode'."
+  ;; Cancel any retry timers left from a previous session.
+  (api-credit--cancel-retry-timers)
   ;; Clean up any pending processes from previous sessions.
   (api-credit--cleanup-processes)
   ;; Clean up legacy global-mode-string entries from previous versions.
@@ -582,6 +655,7 @@ Interactive command that displays formatted tooltip in minibuffer."
     (cancel-timer api-credit--timer)
     (setq api-credit--timer nil))
   (api-credit--cleanup-processes)
+  (api-credit--cancel-retry-timers)
   (setq global-mode-string
         (remove '(:eval api-credit-mode-string) global-mode-string))
   (force-mode-line-update t))
