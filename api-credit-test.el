@@ -124,9 +124,12 @@ so direct `(ert t)' also leaves the user's mode and variables intact."
 
 Reloads the production code from source, then executes the test
 suite in batch or interactive mode as appropriate, preserving the
-user's `api-credit-mode' state and `api-credit-*' variables."
+user's `api-credit-mode' state and `api-credit-*' variables.
+Interactively, discards any existing *ert* results buffer so it is
+recreated with the invoking directory as its `default-directory'."
   (interactive)
-  (let ((mode-enabled-p (bound-and-true-p api-credit-mode))
+  (let ((dir default-directory)
+        (mode-enabled-p (bound-and-true-p api-credit-mode))
         (saved-state (api-credit-test--snapshot-state)))
     ;; Cleanly disable the mode before reloading its code.
     (when mode-enabled-p
@@ -138,9 +141,13 @@ user's `api-credit-mode' state and `api-credit-*' variables."
           (when (and api-credit-test--file
                      (file-exists-p api-credit-test--file))
             (load-file api-credit-test--file))
-          (if noninteractive
-              (ert-run-tests-batch-and-exit "api-credit-")
-            (ert "api-credit-")))
+          (let ((default-directory dir))
+            (if noninteractive
+                (ert-run-tests-batch-and-exit "api-credit-")
+              ;; ERT's results buffer name is hard-coded as "*ert*".
+              (when (get-buffer "*ert*")
+                (kill-buffer "*ert*"))
+              (ert "api-credit-"))))
       (api-credit-test--restore-state saved-state mode-enabled-p))))
 
 ;; ---------- JSON ----------
