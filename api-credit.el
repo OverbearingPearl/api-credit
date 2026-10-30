@@ -95,18 +95,38 @@ backend enforces it with a timer."
   :type 'integer
   :group 'api-credit)
 
+(defun api-credit--provider-spec (provider)
+  "Return the spec plist for PROVIDER from `api-credit--providers'.
+PROVIDER is a provider symbol.  Return nil if PROVIDER has no entry.
+This function only performs a table lookup; it does no network access
+or parsing."
+  (cdr (assq provider api-credit--providers)))
+
+(defcustom api-credit-proxy "http://127.0.0.1:7897"
+  "Proxy address used by the api-credit data fetching paths.
+When non-nil, the value must be a full URL carrying a scheme prefix and
+should match the address the local proxy actually listens on.  In that
+case the curl transport branch passes it as the argument of `--proxy` to
+curl, and the built-in url.el branch builds a single
+`url-proxy-services` entry for the host of the current request.  When
+nil, both transports connect directly, matching the behavior that
+existed before this variable was introduced."
+  :type '(choice (const :tag "No proxy" nil) string)
+  :group 'api-credit)
+
 (defcustom api-credit-retry-delay 5
   "Seconds to wait before retrying a provider after a transient error."
   :type 'integer
   :group 'api-credit)
 
-(defcustom api-credit-active-providers '(openrouter deepseek moonshot)
+(defcustom api-credit-active-providers '(openrouter deepseek moonshot ofoxai)
   "List of providers to display.
 Each element should be a symbol matching those in `api-credit--providers'.
 Set to nil to display all configured providers."
   :type '(repeat (choice (const openrouter)
                          (const deepseek)
-                         (const moonshot)))
+                         (const moonshot)
+                         (const ofoxai)))
   :group 'api-credit)
 
 (defvar api-credit--providers
@@ -130,10 +150,49 @@ Set to nil to display all configured providers."
      :host "api.moonshot.cn"
      :url "https://api.moonshot.cn/v1/users/me/balance"
      :recharge-url "https://platform.moonshot.cn/"
-     :parser api-credit--parse-moonshot))
+     :parser api-credit--parse-moonshot)
+    (ofoxai
+     :name "ofoxai"
+     :currency "$"
+     :host "api.ofox.ai"
+     :url "https://api.ofox.ai/v1/user/balance"
+     :recharge-url "https://app.ofox.io/manage/wallet"
+     :parser api-credit--parse-ofoxai
+     :proxy t))
   "Provider specifications.
 Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
-:host, :url, :recharge-url, and :parser.")
+:host, :url, :recharge-url, and :parser.
+Optional :proxy non-nil means requests to this provider go through a proxy;
+when absent or nil, connect directly.")
+
+(defun api-credit--reload-providers ()
+  "Reload the provider table from the api-credit library file on disk.
+
+A defvar form assigns its initial value only when the symbol is not
+already bound, so reloading the library file does not refresh the
+provider table in an already-loaded session.  Reading the definition
+back from disk lets providers added to the file take effect without
+restarting Emacs after the library is loaded."
+  (let ((file (locate-library "api-credit")))
+    (unless file
+      (error "Cannot locate the api-credit library file"))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (goto-char (point-min))
+      (let ((form
+             (condition-case err
+                 (catch 'found
+                   (while t
+                     (let ((result (read (current-buffer))))
+                       (when (and (consp result)
+                                  (eq (car result) 'defvar)
+                                  (eq (cadr result) 'api-credit--providers))
+                         (throw 'found result)))))
+               (end-of-file nil)
+               (error (error (error-message-string err))))))
+        (unless form
+          (error (concat "No definition of api-credit--providers found in " file)))
+        (setq api-credit--providers (eval (nth 2 form) t))))))
 
 (defvar api-credit--state (make-hash-table :test 'eq)
   "Maps provider symbols to plists with :balance, :error, and :timestamp.")
@@ -205,6 +264,20 @@ Returns balance as a number, or nil if parsing fails."
          (when (and (numberp total-num) (numberp used-num))
            (- total-num used-num)))))))
 
+(defun api-credit--parse-ofoxai (data)
+  "Return the OfoxAI balance parsed from DATA, a JSON-derived alist.
+Read only the top-level `balance' field.  A numeric value is returned
+as-is; a string in decimal notation is coerced with `string-to-number'.
+Return nil when the field is absent or cannot be interpreted as a
+number."
+  (let ((balance (alist-get "balance" data nil nil #'equal)))
+    (cond
+     ((numberp balance) balance)
+     ((and (stringp balance)
+           (string-match-p "\\`-?[0-9]+\\(?:\\.[0-9]+\\)?\\'" balance))
+      (string-to-number balance))
+     (t nil))))
+
 (defun api-credit--parse-deepseek (data)
   "Extract balance from DeepSeek response DATA.
 DATA is an alist parsed from JSON response.
@@ -242,23 +315,41 @@ Returns balance as a number, or nil if parsing fails."
 (defun api-credit--format-tooltip ()
   "Generate tooltip text showing all providers.
 Returns a string with each provider's name, currency, and balance.
-Providers with no balance yet show '--'."
+Providers with no balance yet show '--'.  Active providers missing
+from the provider table are reported with an explicit line naming the
+symbol and stating that the in-memory table is stale.  In the no-balance
+branch, a non-nil error symbol is appended in parentheses after the
+currency and the two dashes; that parenthesized error symbol is for
+diagnostic purposes only."
   (cl-loop for sym in api-credit-active-providers
            for spec = (cdr (assq sym api-credit--providers))
-           when spec
-           for state = (gethash sym api-credit--state)
-           for currency = (plist-get spec :currency)
-           for balance = (plist-get state :balance)
-           for err = (plist-get state :error)
-           for name = (plist-get spec :name)
-           concat (if balance
-                      (format "%s: %s%.2f%s\n"
-                              name
-                              currency
-                              balance
-                              (if err "~" ""))
-                    ;; No balance yet
-                    (format "%s: %s--\n" name currency))
+           concat (if spec
+                      (let* ((state (gethash sym api-credit--state))
+                             (currency (plist-get spec :currency))
+                             (balance (plist-get state :balance))
+                             (err (plist-get state :error))
+                             (name (plist-get spec :name)))
+                        (if balance
+                            (let* ((neg (< balance 0))
+                                   (scaled (round (* (abs balance) 100)))
+                                   (whole (/ scaled 100))
+                                   (frac (mod scaled 100)))
+                              (concat name ": " currency
+                                      (if neg "-" "")
+                                      (number-to-string whole)
+                                      "."
+                                      (if (< frac 10) "0" "")
+                                      (number-to-string frac)
+                                      (if err "~" "")
+                                      "\n"))
+                          (concat name ": " currency "--"
+                                  (if err
+                                      (concat " (" (symbol-name err) ")")
+                                    "")
+                                  "\n")))
+                    (concat (symbol-name sym)
+                            " not found in provider table; "
+                            "the in-memory table is stale.\n"))
            into lines
            finally return (string-trim-right lines "\n")))
 
@@ -299,11 +390,16 @@ Error symbols can be: `no-auth', `timeout', `curl-failed',
 
 (defun api-credit--fetch-curl (provider url api-key callback)
   "Fetch URL with the curl executable for PROVIDER, then call CALLBACK.
-See `api-credit--fetch' for the CALLBACK protocol."
+See `api-credit--fetch' for the CALLBACK protocol.
+Proxy support is enabled only when `api-credit-proxy' is non-nil and
+PROVIDER's spec plist has a non-nil :proxy key; the proxy address is
+the value of `api-credit-proxy'."
   (let* ((done nil)
          (process nil)
          (output-buffer (generate-new-buffer " *api-curl-output*"))
          (error-buffer (generate-new-buffer " *api-curl-error*"))
+         (proxy-enabled (when api-credit-proxy
+                          (plist-get (api-credit--provider-spec provider) :proxy)))
          (finish (lambda (type val)
                    (setq done t)
                    ;; Clean up process tracking
@@ -315,12 +411,15 @@ See `api-credit--fetch' for the CALLBACK protocol."
                    (when (buffer-live-p error-buffer)
                      (kill-buffer error-buffer))
                    (funcall callback provider type val)))
-         (curl-args (list
-                     "--silent"
-                     "--show-error"
-                     "--max-time" (number-to-string api-credit-timeout)
-                     "--header" (concat "Authorization: Bearer " api-key)
-                     url)))
+         (curl-args (append
+                     (list
+                      "--silent"
+                      "--show-error"
+                      "--max-time" (number-to-string api-credit-timeout)
+                      "--header" (concat "Authorization: Bearer " api-key))
+                     (when proxy-enabled
+                       (list "--proxy" api-credit-proxy))
+                     (list url))))
     ;; Start curl process
     (condition-case _
         (progn
@@ -381,8 +480,20 @@ See `api-credit--fetch' for the CALLBACK protocol."
   "Fetch URL with the built-in url.el backend for PROVIDER.
 Then call CALLBACK; see `api-credit--fetch' for the protocol.
 url.el has no built-in request timeout, so `api-credit-timeout'
-is enforced with a timer that kills the connection."
-  (let* ((done nil)
+is enforced with a timer that kills the connection.
+Proxy source is `api-credit-proxy' together with the provider
+spec in `api-credit--providers', effective only when
+`api-credit-proxy' is non-nil and the spec carries a non-nil
+`:proxy' key; the scheme prefix is rewritten to the HOST:PORT
+form expected by `url-proxy-services', keyed under http and https."
+  (let* ((spec (api-credit--provider-spec provider))
+         (proxy-addr (and api-credit-proxy
+                          (plist-get spec :proxy)))
+         (proxy-host-port
+          (when proxy-addr
+            (replace-regexp-in-string
+             "\\`[a-zA-Z][a-zA-Z0-9+.-]*://" "" proxy-addr)))
+         (done nil)
          (buffer nil)
          (timer nil)
          (finish (lambda (type val)
@@ -415,6 +526,11 @@ is enforced with a timer that kills the connection."
         (setq buffer
               (let ((url-http-attempt-keepalives nil)
                     (url-request-method "GET")
+                    (url-proxy-services
+                     (if proxy-host-port
+                         `(("http" . ,proxy-host-port)
+                           ("https" . ,proxy-host-port))
+                       url-proxy-services))
                     (url-request-extra-headers
                      `(("Authorization" . ,(concat "Bearer " api-key)))))
                 (url-retrieve
@@ -634,9 +750,11 @@ Interactive command that displays formatted tooltip in minibuffer."
   (api-credit--cancel-retry-timers)
   ;; Clean up any pending processes from previous sessions.
   (api-credit--cleanup-processes)
+  ;; Reload providers so those written into the source after load are picked up.
+  (api-credit--reload-providers)
   ;; Clean up legacy global-mode-string entries from previous versions.
   (setq global-mode-string
-        (remove '(:eval api-credit-mode-string) global-mode-string))
+        (remove (list :eval (quote api-credit-mode-string)) global-mode-string))
   ;; Set initial provider: default if valid, otherwise first active.
   (setq api-credit--current-index
         (or (and api-credit-default-provider
@@ -647,7 +765,7 @@ Interactive command that displays formatted tooltip in minibuffer."
   (setq api-credit--timer
         (run-with-timer api-credit-poll-interval
                         api-credit-poll-interval
-                        #'api-credit--poll-all)))
+                        (function api-credit--poll-all))))
 
 (defun api-credit--mode-stop ()
   "Stop polling and clean up state for `api-credit-mode'."

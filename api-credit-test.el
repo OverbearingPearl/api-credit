@@ -206,6 +206,14 @@ recreated with the invoking directory as its `default-directory'."
                     '(("data" . (("available_balance" . "25.75")))))
                    25.75))))
 
+(ert-deftest api-credit-test-parse-ofoxai-flat-top-level-balance-string-keys ()
+  "Parse an OfoxAI credit response with top-level flat balance and string-keyed alist."
+  (let* ((json "{\"code\":200,\"message\":\"ok\",\"is_active\":true,\"balance\":8.824152014,\"total\":10.0,\"used\":1.175847986,\"currency\":\"USD\"}")
+         (alist (api-credit--json-parse json))
+         (result (api-credit--parse-ofoxai alist)))
+    (ert-info ((prin1-to-string (list json alist result)))
+      (should (= result 8.824152014)))))
+
 (ert-deftest api-credit-test-parse-moonshot-top-level ()
   "Parse Moonshot response with flat available_balance key."
   (api-credit-test-with-saved-state

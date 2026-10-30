@@ -18,6 +18,9 @@ AI API balance in the Emacs modeline. No browser, no blocking, no fuss.
   ;; Optional: start with specific provider instead of first active
   ;; :custom
   ;; (api-credit-default-provider 'deepseek)
+  ;; Optional: proxy defaults to http://127.0.0.1:7897, change it to the address actually listened on
+  ;; it applies only to providers declaring a proxy key (currently ofoxai), set nil to disable it for all providers
+  ;; (api-credit-proxy "http://127.0.0.1:7897")
   :ensure t
   :bind (("C-c A r" . api-credit-refresh)
          ("C-c A c" . api-credit-cycle)
@@ -46,6 +49,7 @@ machine api.moonshot.cn password sk-...
 | OpenRouter | `https://openrouter.ai/api/v1/credits` |
 | DeepSeek | `https://api.deepseek.com/user/balance` |
 | Moonshot | `https://api.moonshot.cn/v1/users/me/balance` |
+| OfoxAI | `https://api.ofox.ai/v1/user/balance` |
 
 ## Not Supported
 
@@ -101,6 +105,12 @@ Balances appear as `[▮▯▯]$2.00(openrouter)` with 3‑character Unicode bar
   - Symbol like `openrouter`, `deepseek`, or `moonshot`: Jump to that provider if active
 
 Example: `(setq api-credit-default-provider 'deepseek)`
+
+### Proxy
+
+- `api-credit-proxy` — Proxy address used for HTTP requests (default: `http://127.0.0.1:7897`). A value of `nil` disables proxy usage entirely, restoring the behavior prior to this variable's introduction. Applies only to providers whose provider spec declares a proxy key; currently only `ofoxai` uses the proxy, while `openrouter` and `deepseek` still connect directly.
+
+Example: `(setq api-credit-proxy "http://127.0.0.1:7897")`
 
 ### Timing
 
