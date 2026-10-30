@@ -95,13 +95,6 @@ backend enforces it with a timer."
   :type 'integer
   :group 'api-credit)
 
-(defun api-credit--provider-spec (provider)
-  "Return the spec plist for PROVIDER from `api-credit--providers'.
-PROVIDER is a provider symbol.  Return nil if PROVIDER has no entry.
-This function only performs a table lookup; it does no network access
-or parsing."
-  (cdr (assq provider api-credit--providers)))
-
 (defcustom api-credit-proxy "http://127.0.0.1:7897"
   "Proxy address used by the api-credit data fetching paths.
 When non-nil, the value must be a full URL carrying a scheme prefix and
@@ -164,6 +157,11 @@ Each entry is a cons (SYMBOL . PLIST) with :name, :currency,
 :host, :url, :recharge-url, and :parser.
 Optional :proxy non-nil means requests to this provider go through a proxy;
 when absent or nil, connect directly.")
+
+(defun api-credit--provider-spec (name)
+  "Return the provider entry named NAME from `api-credit--providers'.
+Return nil when NAME is not a registered provider."
+  (cdr (assq name api-credit--providers)))
 
 (defun api-credit--reload-providers ()
   "Reload the provider table from the api-credit library file on disk.
